@@ -65,8 +65,8 @@ tasks:
   cluster_mode: multi-node
   cluster_size: 2
   module_uri: ''
-  command: 'ssh sub1 cd /home/work/examples && pip install -r requirements.txt &&
-    ./multi-node.sh &
+  command: 'ssh sub1 "cd /home/work/examples && pip install -r requirements.txt &&
+    ./multi-node.sh" &
 
     cd /home/work/examples
 
