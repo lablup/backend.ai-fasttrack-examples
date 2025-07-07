@@ -65,9 +65,14 @@ tasks:
   cluster_mode: multi-node
   cluster_size: 2
   module_uri: ''
-  command: "ssh sub1 \\\n  cd /home/work/examples \\\n  && pip install -r requirements.txt\
-    \ \\\n  && ./multi-node.sh \\\n  &\ncd /home/work/examples\npip install -r requirements.txt\n\
-    ./multi-node.sh"
+  command: 'ssh sub1 cd /home/work/examples && pip install -r requirements.txt &&
+    ./multi-node.sh &
+
+    cd /home/work/examples
+
+    pip install -r requirements.txt
+
+    ./multi-node.sh'
   environment:
     project: default
     scaling-group: nvidia-H100
