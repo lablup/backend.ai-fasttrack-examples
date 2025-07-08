@@ -1,5 +1,4 @@
 #!/bin/bash
-HF_TOKEN=$HF_TOKEN
 LLAMA_MODEL=Llama-3.1-8B-Instruct
 
 tune download meta-llama/$LLAMA_MODEL \

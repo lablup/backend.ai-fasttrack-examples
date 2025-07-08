@@ -5,7 +5,8 @@ ownership:
   domain_name: default
   scope: personal
 environment:
-  envs: {}
+  envs:
+    HF_TOKEN: hf_XXXXXXXXX
 tasks:
 - name: download-model
   description: ''
