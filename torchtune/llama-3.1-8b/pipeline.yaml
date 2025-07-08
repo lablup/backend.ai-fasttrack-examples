@@ -59,7 +59,7 @@ tasks:
   - download-model
   mounts:
   - baift-examples:examples
-  skip: true
+  skip: false
 - name: fine-tune-multi
   description: ''
   type: Custom Task
