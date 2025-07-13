@@ -1,0 +1,116 @@
+version: 25.6.5.post2
+name: torchtune-example
+description: A sample pipeline demonstrating how to fine-tune models using torchtune.
+ownership:
+  domain_name: default
+  scope: personal
+environment:
+  envs:
+    HF_TOKEN: hf_XXXXXXXXX
+tasks:
+- name: download-model
+  description: ''
+  type: Custom Task
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  command: 'cd /home/work/examples
+
+    pip install -r requirements.txt
+
+    ./download.sh'
+  environment:
+    project: default
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/cloud/python:3.10-ubuntu20.04
+    envs: {}
+  resources:
+    cpu: 4
+    mem: 16g
+  resource_opts:
+    shmem: 0g
+  dependencies: []
+  mounts:
+  - baift-examples:examples
+  skip: false
+- name: fine-tune-single
+  description: ''
+  type: Custom Task
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  command: 'cd /home/work/examples
+
+    pip install -r requirements.txt
+
+    ./single-node.sh'
+  environment:
+    project: default
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/cloud/ngc-pytorch:24.09-pytorch2.5-py310-cuda12.6
+    envs: {}
+  resources:
+    cpu: 4
+    mem: 16g
+    cuda.shares: '5'
+  resource_opts:
+    shmem: 2g
+  dependencies:
+  - download-model
+  mounts:
+  - baift-examples:examples
+  skip: false
+- name: fine-tune-multi
+  description: ''
+  type: Custom Task
+  cluster_mode: multi-node
+  cluster_size: 2
+  module_uri: ''
+  command: 'ssh sub1 "cd /home/work/examples && pip install -r requirements.txt &&
+    ./multi-node.sh" &
+
+    cd /home/work/examples
+
+    pip install -r requirements.txt
+
+    ./multi-node.sh'
+  environment:
+    project: default
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/cloud/ngc-pytorch:24.09-pytorch2.5-py310-cuda12.6
+    envs: {}
+  resources:
+    cpu: 4
+    mem: 16g
+    cuda.shares: '5'
+  resource_opts:
+    shmem: 2g
+  dependencies:
+  - download-model
+  mounts:
+  - baift-examples:examples
+  skip: false
+- name: evaluate
+  description: ''
+  type: Custom Task
+  cluster_mode: single-node
+  cluster_size: 1
+  module_uri: ''
+  command: sleep 10
+  environment:
+    project: default
+    scaling-group: nvidia-H100
+    image: cr.backend.ai/cloud/ngc-pytorch:24.09-pytorch2.5-py310-cuda12.6
+    envs: {}
+  resources:
+    cpu: 2
+    mem: 4g
+    cuda.shares: '1.5'
+  resource_opts:
+    shmem: 0g
+  dependencies:
+  - fine-tune-single
+  - fine-tune-multi
+  mounts:
+  - baift-examples:examples
+  skip: false
