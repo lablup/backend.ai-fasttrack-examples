@@ -1,6 +1,6 @@
-# Gemma-3n Financial Q&A Fine-tuning Pipeline
+# General language model Fine-tuning Pipeline
 
-이 프로젝트는 Gemma-3n 모델을 financial Q&A 데이터셋으로 파인튜닝하고 평가하는 완전한 파이프라인을 제공합니다.
+이 프로젝트는 General language model에 대해 Hugging Face 데이터셋으로 파인튜닝하고 평가하는 파이프라인을 제공합니다.
 
 ## 🚀 Quick Start
 
