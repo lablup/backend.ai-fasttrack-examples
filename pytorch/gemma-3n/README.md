@@ -6,41 +6,65 @@
 
 ### 환경 설정
 
-1. 의존성 설치:
+**1. 자동 환경 설정 (권장)**
 ```bash
+# gemma-3n 프로젝트 루트에서 실행
+bash setup_env.sh
+```
+이미 가상환경이 존재한다면 건너뛰어도 됩니다.
+
+**2. 수동 환경 설정**
+```bash
+cd pipeline-code
+python -m venv .gemma3n
+source .gemma3n/bin/activate
 pip install -r requirements.txt
 ```
 
-2. 환경 변수 설정:
-`.env` 파일에서 다음 값들을 확인하세요:
+**3. 환경 변수 설정**
+`pipeline-code/.env` 파일에서 다음 값들을 확인하세요:
 - `HF_TOKEN`: Hugging Face 토큰
-- `MODEL_ID`: 기본값은 `google/gemma-3n-e2b-it`
-- `DATASET`: 기본값은 `TheFinAI/Fino1_Reasoning_Path_FinQA`
+- `MODEL_ID`: 사용할 Hugging Face의 model repository 이름. 기본값은 `google/gemma-3n-e2b-it`
+- `DATASET`: 사용할 Hugging Face의 dataset repository 이름. 기본값은 `TheFinAI/Fino1_Reasoning_Path_FinQA`
 - `WANDB_API_KEY`: Weights & Biases API 키 (선택사항)
+
+### 📚 사용자 정의 학습 데이터셋 설정 가이드
+
+다양한 데이터셋을 파이프라인에 적용하는 방법은 [`pipeline-code/configs/README.md`](pipeline-code/configs/README.md)를 참조하세요.
 
 ### 파이프라인 실행
 
 #### 방법 1: 전체 파이프라인 한 번에 실행
 ```bash
+cd pipeline-code
 python scripts/cli.py pipeline \
-    --training_args_path configs/training_args.yaml \
-    --peft_config_path configs/peft_config.yaml
+    --training_args_path training_args.yaml \
+    --peft_config_path peft_config.yaml
 ```
 
-#### 방법 2: 개별 태스크 실행
+#### 방법 2: 개별 태스크 실행 (권장)
 ```bash
-# 1. 데이터셋 다운로드 및 전처리
-python scripts/cli.py dataset
+# Task 1a: 데이터셋 다운로드
+python scripts/cli.py download-dataset
 
-# 2. 베이스 모델 평가
+# Task 1b: 데이터셋 전처리  
+python scripts/cli.py preprocess-dataset
+
+# Task 1b (사용자 정의 설정 사용):
+python scripts/cli.py preprocess-dataset --config my_dataset_config.yaml
+
+# Task 1c: 데이터셋 포맷팅
+python scripts/cli.py format-dataset
+
+# Task 2: 베이스 모델 평가
 python scripts/cli.py eval-base
 
-# 3. 모델 파인튜닝
+# Task 3: 모델 파인튜닝
 python scripts/cli.py train \
     --training_args_path training_args.yaml \
     --peft_config_path peft_config.yaml
 
-# 4. 파인튜닝된 모델 평가
+# Task 4: 파인튜닝된 모델 평가
 python scripts/cli.py eval-finetuned
 ```
 
@@ -51,6 +75,8 @@ python scripts/cli.py eval-finetuned
 - **PEFT 어댑터 저장 경로**: `{프로젝트_루트}/results/model/`
 - **병합된 모델 저장 경로**: `{프로젝트_루트}/results/merged_model/`
 - **평가 결과 저장**: `{프로젝트_루트}/results/evaluation/`
+
+- (FastTrack pipeline용 폴더 설계) 확장 예정
 
 ### 파일 구조
 ```
@@ -71,13 +97,16 @@ gemma-3n/
     ├── logs/                   # 훈련 로그 저장소
     ├── src/
     │   ├── data/
-    │   │   └── dataset.py      # 데이터셋 로딩 및 전처리
+    │   │   ├── download_dataset.py # Task 1a: 데이터셋 다운로드
+    │   │   ├── preprocess_dataset.py # Task 1b: 데이터셋 전처리
+    │   │   ├── format_dataset.py   # Task 1c: 데이터셋 포맷팅
+    │   │   └── dataset.py          # 통합 데이터셋 파이프라인 (호환성 유지)
     │   ├── evaluation/
-    │   │   └── evaluation.py   # 모델 평가
+    │   │   └── evaluation.py       # 모델 평가
     │   ├── models/
-    │   │   └── model.py        # 모델 로딩
+    │   │   └── model.py           # 모델 로딩
     │   └── training/
-    │       └── trainer.py      # 모델 파인튜닝
+    │       └── trainer.py         # 모델 파인튜닝
     ├── .env                    # 환경 변수
     └── requirements.txt        # 의존성
 
@@ -85,18 +114,71 @@ gemma-3n/
 
 ## 🔧 태스크 상세 설명
 
-### Task 1: Dataset Download & Preprocessing
-- **입력**: Hugging Face 데이터셋 (`TheFinAI/Fino1_Reasoning_Path_FinQA`)
-- **처리**: 데이터셋을 train/validation/test로 분할하고 채팅 템플릿 적용
-- **출력**: `dataset/` 폴더에 전처리된 데이터셋 저장
+### Task 1: Dataset Pipeline (세분화된 태스크)
 
-### Task 2: Base Model Evaluation
+#### Task 1a: Dataset Download
+- **파일**: `src/data/download_dataset.py`
+- **입력**: Hugging Face 데이터셋 (`TheFinAI/Fino1_Reasoning_Path_FinQA`)
+- **처리**: 데이터셋을 train/validation/test로 분할
+- **출력**: `dataset/raw/` 폴더에 원본 데이터셋 저장
+
+#### Task 1b: Dataset Preprocessing  
+- **파일**: `src/data/preprocess_dataset.py`
+- **입력**: `dataset/raw/` 폴더의 원본 데이터셋
+- **설정**: `configs/dataset_config.yaml` (사용자 정의 가능)
+- **처리**: 
+  - 설정 파일 기반 데이터 전처리 (다양한 데이터셋 지원)
+  - 컬럼 매핑을 통한 일반화된 전처리
+  - 데이터 품질 필터링, 정제
+  - messages 구조로 변환 (train/validation: 학습용, test: 평가용)
+  - system prompt, user, assistant content 구조화
+- **출력**: `dataset/preprocessed/` 폴더에 messages 구조의 데이터셋 저장
+
+#### ⚙️ 사용자 정의 데이터셋 설정
+`configs/dataset_config.yaml` 파일을 통해 다양한 데이터셋에 적용 가능:
+다양한 데이터셋을 파이프라인에 적용하는 자세한 방법은 [`pipeline-code/configs/README.md`](pipeline-code/configs/README.md)를 참조하세요.
+
+```yaml
+# 컬럼 매핑 (key: 변수명, value: 실제 데이터셋 컬럼명)
+training_columns:
+  question: "Open-ended Verifiable Question"
+  cot: "Complex_CoT" 
+  response: "Response"
+
+# messages 포맷 템플릿
+messages_format:
+  system_prompt: |
+    Below is an instruction that describes a task...
+  messages:
+    - role: "system"
+      content: "{system_prompt}"
+    - role: "user"
+      content: "{question}"
+    - role: "assistant"
+      content: "<think>\n{cot}\n</think>\n{response}"
+
+# 평가용 컬럼 매핑
+evaluate_columns:
+  query: "Open-ended Verifiable Question"
+  response: "Response"
+```
+
+#### Task 1c: Dataset Formatting
+- **파일**: `src/data/format_dataset.py`
+- **입력**: `dataset/preprocessed/` 폴더의 messages 구조 데이터셋
+- **처리**: 
+  - processor.apply_chat_template 적용
+  - train/validation: 학습용 텍스트 생성
+  - test: 평가용 프롬프트와 reference 생성
+- **출력**: `dataset/formatted/` 폴더에 최종 포맷팅된 데이터셋 저장
+
+### Task 2: 학습 전 Base Model Evaluation
 - **입력**: 원본 Gemma-3n 모델, 전처리된 테스트 데이터
 - **처리**: ROUGE, BERTScore 등의 지표로 베이스 모델 성능 평가
 - **출력**: `base_model_evaluation.json`
 
 ### Task 3: Model Fine-tuning
-- **입력**: 베이스 모델, 전처리된 훈련/검증 데이터, 설정 파일들
+- **입력**: 베이스 모델, 포맷팅된 훈련/검증 데이터, 설정 파일들
 - **처리**: LoRA를 사용한 파라미터 효율적 파인튜닝
 - **출력**: 
   - PEFT 어댑터: `results/model/` 폴더

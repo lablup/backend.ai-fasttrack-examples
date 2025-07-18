@@ -13,10 +13,13 @@ class Settings(BaseSettings):
     base_path: Path = Path(__file__).parent.parent
     
     # 모델 및 데이터셋 설정
-    model_id: str = os.getenv('MODEL_ID', 'google/gemma-3n-e2b-it')
-    dataset: str = os.getenv('DATASET', 'TheFinAI/Fino1_Reasoning_Path_FinQA')
+    model_id: str = os.getenv('MODEL_ID', '')
+    dataset: str = os.getenv('DATASET', '')
 
     save_dataset_path: Optional[Path] = None
+    save_dataset_path_raw: Optional[Path] = None
+    save_dataset_path_preprocessed: Optional[Path] = None
+    save_dataset_path_formatted: Optional[Path] = None
     save_model_path: Optional[Path] = None
     merged_model_path: Optional[Path] = None
     evaluation_output_path: Optional[Path] = None
@@ -30,6 +33,9 @@ class Settings(BaseSettings):
     def model_post_init(self, __context):
     # 경로 설정
         self.save_dataset_path: Path = self.base_path / os.getenv('SAVE_DATASET_PATH', 'dataset')
+        self.save_dataset_path_raw: Path = self.save_dataset_path / "raw"
+        self.save_dataset_path_preprocessed: Path = self.save_dataset_path / "preprocessed"
+        self.save_dataset_path_formatted: Path = self.save_dataset_path / "formatted"
         self.save_model_path: Path = self.base_path / os.getenv('SAVE_MODEL_PATH', 'results/models')
         self.merged_model_path: Path = self.base_path / os.getenv('MERGED_MODEL_PATH', 'results/merged_model')
         self.evaluation_output_path: Path = self.base_path / os.getenv('EVALUATION_OUTPUT_PATH', 'results/evaluation')

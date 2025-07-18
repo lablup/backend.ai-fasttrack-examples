@@ -3,6 +3,8 @@ import argparse
 import json
 import torch
 import logging
+import sys
+from pathlib import Path
 from datasets import load_from_disk  # 'load_dataset' 대신 'load_from_disk'를 사용
 from transformers import (
     AutoModelForCausalLM,
@@ -13,6 +15,12 @@ from transformers import (
 from peft import PeftModel
 from tqdm import tqdm
 import evaluate
+
+# # 프로젝트 루트를 sys.path에 추가
+# project_root = Path(__file__).parent.parent.parent
+# sys.path.insert(0, str(project_root))
+
+from src.models.model import ModelLoader
 from configs.settings import settings
 
 # tqdm을 통한 진행률 표시를 위해 로깅 레벨을 설정합니다.
@@ -38,7 +46,7 @@ def load_model_for_evaluation(model_name_or_path, use_finetuned=False):
         if merged_model_path.exists() and (merged_model_path / "config.json").exists():
             print(f"Found merged fine-tuned model at: {merged_model_path}")
             try:
-                if 'gemma' in model_name_or_path.lower():
+                if 'gemma-3' in model_name_or_path.lower():
                     model = Gemma3nForConditionalGeneration.from_pretrained(
                         str(merged_model_path),
                         device_map="auto", 
@@ -64,7 +72,7 @@ def load_model_for_evaluation(model_name_or_path, use_finetuned=False):
             print(f"Loading base model and applying PEFT adapter from: {adapter_path}")
             
             # 베이스 모델 로드
-            if 'gemma' in model_name_or_path.lower():
+            if 'gemma-3' in model_name_or_path.lower():
                 base_model = Gemma3nForConditionalGeneration.from_pretrained(
                     model_name_or_path, 
                     device_map="auto", 
@@ -99,7 +107,7 @@ def load_model_for_evaluation(model_name_or_path, use_finetuned=False):
     
     # 베이스 모델 로딩
     print(f"Loading base model: {model_name_or_path}")
-    if 'gemma' in model_name_or_path.lower():
+    if 'gemma-3' in model_name_or_path.lower():
         model = Gemma3nForConditionalGeneration.from_pretrained(
             model_name_or_path, 
             device_map="auto", 
@@ -125,29 +133,31 @@ def main():
     rouge_metric = evaluate.load("rouge")
     bertscore_metric = evaluate.load("bertscore")
     
-    # 2. 프로세서 로드 - 파인튜닝된 모델이 있으면 그곳에서 로드
+    # 2. 모델 로더를 통해 tokenizer 로드
     processor_path = args.model_name_or_path
     if args.use_adapter and settings.merged_model_path.exists() and (settings.merged_model_path / "tokenizer_config.json").exists():
         processor_path = str(settings.merged_model_path)
-        print(f"Loading processor from fine-tuned model: {processor_path}")
+        print(f"Loading tokenizer from fine-tuned model: {processor_path}")
     else:
-        print(f"Loading processor from base model: {processor_path}")
+        print(f"Loading tokenizer from base model: {processor_path}")
     
-    try:
-        processor = AutoProcessor.from_pretrained(processor_path, token=os.getenv('HF_TOKEN'))
-    except:
-        # 로컬 파일이 없으면 원본 모델에서 로드
-        processor = AutoProcessor.from_pretrained(args.model_name_or_path, token=os.getenv('HF_TOKEN'))
+    # ModelLoader 사용 (모델은 따로 로드할 예정이므로 tokenizer만 필요)
+    model_loader = ModelLoader(processor_path)
     
-    output_path = settings.evaluation_output_path / args.output_path
+    if not model_loader.tokenizer:
+        print(f"❌ Failed to load tokenizer from {processor_path}")
+        return
     
-    dataset_path = settings.save_dataset_path
+    tokenizer = model_loader.tokenizer
+        
+    dataset_path = settings.save_dataset_path_formatted
     try:
         # load_from_disk를 사용하여 저장된 데이터셋 전체를 불러옵니다.
         full_dataset = load_from_disk(dataset_path)
         # 평가에는 'test' 스플릿만 사용합니다.
         test_dataset = full_dataset['test']
         print(f"Successfully loaded test split from {dataset_path}")
+        print(f"Test dataset columns: {test_dataset.column_names}")
     except FileNotFoundError:
         print(f"Error: Dataset directory not found at {dataset_path}")
         return
@@ -160,18 +170,18 @@ def main():
     # 4. 파이프라인 설정
     pipe = pipeline("text-generation",
                     model=model,
-                    tokenizer=processor.tokenizer,
+                    tokenizer=tokenizer,
                     torch_dtype=torch.float16, # 데이터 타입을 명시적으로 지정
                     max_new_tokens=256,
                     device_map="auto"
                     )
 
-    # 5. 평가 실행: 미니배치 처리 방식으로 변경
+    # 5. 평가 실행: 전처리된 데이터 직접 사용
     if args.max_samples:
         test_dataset = test_dataset.select(range(args.max_samples))
     
     # 배치 크기 설정 (GPU 메모리에 따라 조절)
-    batch_size = 8
+    batch_size = 16
     
     all_predictions = []
     all_references = []
@@ -184,23 +194,14 @@ def main():
         # 1. 현재 배치에 해당하는 데이터(딕셔너리)를 가져옵니다.
         batch = test_dataset[i : i + batch_size]
         
-        # 2. 딕셔너리에서 컬럼 이름으로 데이터 리스트를 직접 꺼냅니다.
-        batch_questions = batch.get("Open-ended Verifiable Question", [])
-        batch_references = batch.get("Response", [])
+        # 2. 전처리된 데이터에서 prompt와 reference 직접 추출
+        batch_prompts = batch.get("prompt", [])
+        batch_references = batch.get("reference", [])
 
-        # 3. 프롬프트 리스트 생성
-        batch_prompts = [
-            processor.apply_chat_template(
-                [{"role": "user", "content": q}],
-                tokenize=False,
-                add_generation_prompt=True
-            ) for q in batch_questions
-        ]
-
-        # 4. 파이프라인으로 현재 배치를 한 번에 처리
-        generated_outputs = pipe(batch_prompts, batch_size=len(batch_prompts), eos_token_id=processor.tokenizer.eos_token_id)
+        # 3. 파이프라인으로 현재 배치를 한 번에 처리
+        generated_outputs = pipe(batch_prompts, batch_size=len(batch_prompts), eos_token_id=tokenizer.eos_token_id)
         
-        # 5. 생성된 결과에서 예측 텍스트만 추출
+        # 4. 생성된 결과에서 예측 텍스트만 추출
         batch_predictions = [
             out[0]['generated_text'].replace(prompt, '').strip()
             for out, prompt in zip(generated_outputs, batch_prompts)
@@ -230,6 +231,7 @@ def main():
     print(f"ROUGE Scores: {rouge_scores}")
     print(f"BERTScore (F1 Average): {avg_bert_f1:.4f}")
 
+    output_path = settings.evaluation_output_path / args.output_path
 
     if not output_path.parent.exists():
         output_path.parent.mkdir(parents=True, exist_ok=True)

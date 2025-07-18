@@ -20,3 +20,4 @@ nltk
 absl-py
 rouge_score
 timm
+pyyaml

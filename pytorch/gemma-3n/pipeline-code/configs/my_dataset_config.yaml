@@ -1,0 +1,33 @@
+# Dataset Configuration for Preprocessing
+# 이 파일은 데이터셋 전처리 시 사용할 컬럼 매핑과 메시지 포맷을 정의합니다.
+
+# Training용 컬럼 매핑 (key: messages_format에서 사용할 변수명, value: 실제 데이터셋 컬럼명)
+training_columns:
+  doc: "document"
+  response: "summary"
+
+# Training용 messages 포맷 템플릿, 
+messages_format:
+  system_prompt: |
+    
+  
+  messages:
+    - role: "user" 
+      content: "다음 글을 요약해 주세요: \n\n {doc}"
+    - role: "assistant"
+      content: "{response}"
+
+# Evaluation용 컬럼 매핑
+evaluate_columns:
+  query: "document"
+  response: "summary"
+
+# 데이터 품질 필터링 설정
+data_filtering:
+  # 필수 체크할 컬럼들 (None 값과 빈 문자열 체크)
+  required_columns:
+    - "document"
+    - "summary"
+  
+  # 최소 텍스트 길이
+  min_text_length: 1

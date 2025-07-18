@@ -13,21 +13,53 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent / 'pipeline-code'
 sys.path.insert(0, str(project_root))
 
-from src.data.dataset import main as dataset_main
+from src.data.download_dataset import main as download_dataset_main
+from src.data.preprocess_dataset import main as preprocess_dataset_main  
+from src.data.format_dataset import main as format_dataset_main
+from src.data.dataset import main as dataset_main  # Legacy compatibility
 from src.training.trainer import main as trainer_main
 from src.evaluation.evaluation import main as evaluation_main
 
-def setup_dataset():
-    """Task 1: 데이터셋 다운로드 및 전처리"""
-    print("=== Task 1: Dataset Download & Preprocessing ===")
+def download_dataset():
+    """Task 1a: 데이터셋 다운로드"""
+    print("=== Task 1a: Dataset Download ===")
     try:
-        sys.argv = ['src/data/dataset.py',
-                    ] 
-
-        dataset_main()
-        print("✅ Dataset task completed successfully")
+        sys.argv = ['src/data/download_dataset.py']
+        download_dataset_main()
+        print("✅ Dataset download task completed successfully")
     except Exception as e:
-        print(f"❌ Dataset task failed: {e}")
+        print(f"❌ Dataset download task failed: {e}")
+        return False
+    return True
+
+def preprocess_dataset(config_path=None):
+    """Task 1b: 데이터셋 전처리"""
+    print("=== Task 1b: Dataset Preprocessing ===")
+    try:
+        # CLI 인자 설정
+        config_file = config_path if config_path else 'dataset_config.yaml'
+        print(f"Using dataset config: {config_file}")
+        sys.argv = [
+            'src/data/preprocess_dataset.py',
+            '--config', config_file
+            ]
+        
+        preprocess_dataset_main()
+        print("✅ Dataset preprocessing task completed successfully")
+    except Exception as e:
+        print(f"❌ Dataset preprocessing task failed: {e}")
+        return False
+    return True
+
+def format_dataset():
+    """Task 1c: 데이터셋 포맷팅"""
+    print("=== Task 1c: Dataset Formatting ===")
+    try:
+        sys.argv = ['src/data/format_dataset.py']
+        format_dataset_main()
+        print("✅ Dataset formatting task completed successfully")
+    except Exception as e:
+        print(f"❌ Dataset formatting task failed: {e}")
         return False
     return True
 
@@ -83,12 +115,14 @@ def evaluate_finetuned_model():
         return False
     return True
 
-def run_full_pipeline(training_args_path, peft_config_path):
+def run_full_pipeline(training_args_path, peft_config_path, config_path=None):
     """전체 파이프라인 실행"""
     print("🚀 Starting Full Pipeline Execution")
     
     tasks = [
-        ("Dataset Setup", setup_dataset),
+        ("Dataset Download", download_dataset),
+        ("Dataset Preprocessing", preprocess_dataset(config_path)), 
+        ("Dataset Formatting", format_dataset),
         ("Base Model Evaluation", evaluate_base_model),
         ("Model Fine-tuning", lambda: fine_tune_model(training_args_path, peft_config_path)),
         ("Fine-tuned Model Evaluation", evaluate_finetuned_model)
@@ -105,21 +139,27 @@ def run_full_pipeline(training_args_path, peft_config_path):
     return True
 
 def main():
-
     parser = argparse.ArgumentParser(description="Gemma-3n Fine-tuning Pipeline")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
-    # 개별 태스크 실행
-    subparsers.add_parser('dataset', help='Download and preprocess dataset')
-    subparsers.add_parser('eval-base', help='Evaluate base model')
+    # 세분화된 데이터셋 태스크들
+    subparsers.add_parser('download-dataset', help='Task 1a: Download dataset from HuggingFace')
+
+    preprocess_dataset_parser = subparsers.add_parser('preprocess-dataset', help='Task 1b: Preprocess raw dataset')
+    preprocess_dataset_parser.add_argument('--config', type=str, help='Path to dataset preprocessing config file')
     
-    train_parser = subparsers.add_parser('train', help='Fine-tune model')
+    subparsers.add_parser('format-dataset', help='Task 1c: Format dataset with chat template')
+    
+    # 평가 및 학습 태스크들
+    subparsers.add_parser('eval-base', help='Task 2: Evaluate base model')
+    
+    train_parser = subparsers.add_parser('train', help='Task 3: Fine-tune model')
     train_parser.add_argument('--training_args_path', type=str, required=True,
                              help='Path to training arguments YAML file')
     train_parser.add_argument('--peft_config_path', type=str, required=True,
                              help='Path to PEFT config YAML file')
     
-    subparsers.add_parser('eval-finetuned', help='Evaluate fine-tuned model')
+    subparsers.add_parser('eval-finetuned', help='Task 4: Evaluate fine-tuned model')
     
     # 전체 파이프라인 실행
     pipeline_parser = subparsers.add_parser('pipeline', help='Run full pipeline')
@@ -127,11 +167,17 @@ def main():
                                 help='Path to training arguments YAML file')
     pipeline_parser.add_argument('--peft_config_path', type=str, required=True,
                                 help='Path to PEFT config YAML file')
+    pipeline_parser.add_argument('--config', type=str, help='Path to dataset preprocessing config file')
+
     
     args = parser.parse_args()
     
-    if args.command == 'dataset':
-        setup_dataset()
+    if args.command == 'download-dataset':
+        download_dataset()
+    elif args.command == 'preprocess-dataset':
+        preprocess_dataset(config_path=args.config)
+    elif args.command == 'format-dataset':
+        format_dataset()
     elif args.command == 'eval-base':
         evaluate_base_model()
     elif args.command == 'train':
@@ -139,7 +185,7 @@ def main():
     elif args.command == 'eval-finetuned':
         evaluate_finetuned_model()
     elif args.command == 'pipeline':
-        run_full_pipeline(args.training_args_path, args.peft_config_path)
+        run_full_pipeline(args.training_args_path, args.peft_config_path, config_path=args.config)
     else:
         parser.print_help()
 

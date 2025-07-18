@@ -2,11 +2,17 @@ import os
 import json
 import argparse
 import torch
+import sys
 from pathlib import Path
 from trl import SFTTrainer, SFTConfig
 from transformers import DataCollatorForLanguageModeling, TrainingArguments
 from datasets import DatasetDict, load_from_disk
 from peft import LoraConfig
+
+# # 프로젝트 루트를 sys.path에 추가
+# project_root = Path(__file__).parent.parent.parent
+# sys.path.insert(0, str(project_root))
+
 from src.models.model import ModelLoader
 from configs.settings import settings
 import yaml
@@ -29,12 +35,12 @@ def parse_args():
     return parser.parse_args()
 
 class CustomTrainer:
-    def __init__(self, model_id, processor, output_dir, dataset_path):
+    def __init__(self, model_id, tokenizer, output_dir, dataset_path):
         self.model_id = model_id
         self.output_dir = output_dir
-        self.processor = processor
+        self.tokenizer = tokenizer
         self.data_collator = DataCollatorForLanguageModeling(
-            tokenizer=self.processor.tokenizer,
+            tokenizer=self.tokenizer,
             mlm=False  # we're doing causal LM, not masked LM
         )
         try:
@@ -50,7 +56,7 @@ class CustomTrainer:
             return
         
         model = model_loader.model
-        processor = self.processor
+        tokenizer = self.tokenizer
 
         if training_args_dict:
             # 사용자가 원하는 세팅의 configuration을 불러옵니다.
@@ -99,7 +105,7 @@ class CustomTrainer:
             args=training_args,
             train_dataset=self.dataset['train'],
             eval_dataset=self.dataset['validation'],
-            processing_class=processor.tokenizer,
+            processing_class=tokenizer,
             peft_config=peft_config,
             # data_collator=self.data_collator,
         )
@@ -130,7 +136,7 @@ class CustomTrainer:
                 safe_serialization=True,  # 안전한 텐서 포맷으로 저장
                 max_shard_size="5GB"  # 큰 모델을 위한 샤딩
             )
-            processor.tokenizer.save_pretrained(merged_model_path)
+            tokenizer.save_pretrained(merged_model_path)
             
             
             print(f"✅ Successfully saved merged model and tokenizer to {merged_model_path}")
@@ -188,8 +194,8 @@ def main():
     # CLI 조건에 따라 report_to 값을 덮어쓰기
     training_args_dict['report_to'] = report_to
     
-    if not model_loader.model or not model_loader.processor:
-        print("Failed to load model or processor. Cannot proceed with training.")
+    if not model_loader.model or not model_loader.tokenizer:
+        print("Failed to load model or tokenizer. Cannot proceed with training.")
         return
 
     print("Output directory is not specified. Using default settings.")
@@ -199,7 +205,7 @@ def main():
     logging_dir = settings.logging_dir
     logging_dir.mkdir(parents=True, exist_ok=True)
 
-    trainer = CustomTrainer(args.model_id, model_loader.processor, output_dir, settings.save_dataset_path)
+    trainer = CustomTrainer(args.model_id, model_loader.tokenizer, output_dir, settings.save_dataset_path_formatted)
     trainer.train(model_loader = model_loader, training_args_dict = training_args_dict, peft_config_dict = peft_config_dict, logging_dir=logging_dir)
 
 if __name__ == "__main__":

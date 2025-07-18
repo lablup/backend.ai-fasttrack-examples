@@ -1,6 +1,6 @@
 # Training Arguments Configuration for Gemma-3n Fine-tuning
-per_device_train_batch_size: 8
-per_device_eval_batch_size: 8
+per_device_train_batch_size: 16
+per_device_eval_batch_size: 16
 gradient_accumulation_steps: 2
 gradient_checkpointing: true
 learning_rate: 1.0e-05
@@ -16,7 +16,7 @@ load_best_model_at_end: true
 metric_for_best_model: "eval_loss"  # 또는 사용하는 평가 메트릭
 greater_is_better: false  # loss의 경우 false, accuracy 등은 true
 report_to: ["wandb"]
-run_name: "gemma-3n-E2B-it-trl-sft"
+run_name: "gemma-2-2b-it-news-sumarization"
 fp16: false
 bf16: true
 group_by_length: true
