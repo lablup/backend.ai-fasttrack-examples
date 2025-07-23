@@ -5,7 +5,7 @@ Task 1b: Dataset Preprocessing
 - train/validation: 학습용 messages 구조 생성
 - test: 평가용 messages 구조 생성
 
-일반화된 데이터셋 전처리로 사용자가 configs/dataset_config.yaml을 통해
+일반화된 데이터셋 전처리로 사용자가 configs/messages_format.yaml을 통해
 다양한 데이터셋에 적용할 수 있습니다.
 """
 
@@ -20,7 +20,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Dataset Preprocessor")
     parser.add_argument('--max_samples_per_split', type=int, default=None,
                         help='Maximum number of samples per split for testing (optional)')
-    parser.add_argument('--config', type=str, default='dataset_config.yaml',
+    parser.add_argument('--config', type=str, default='messages_format.yaml',
                         help='Path to dataset configuration YAML file')
     return parser.parse_args()
 
@@ -213,8 +213,13 @@ def main():
     print(f"Loading dataset config from: {args.config}")
     config = load_dataset_config(args.config)
     
-    # 입력 경로 설정
-    input_path = settings.save_dataset_path_raw
+    # 입력 경로 설정 - 파이프라인 환경에서는 이전 task의 output을 input1에서 읽음
+    if settings.is_pipeline_env:
+        readonly_input_path = settings.pipeline_input_path
+        # 읽기 전용 경로를 쓰기 가능한 임시 경로로 복사
+        input_path = settings.copy_readonly_to_writable(readonly_input_path, 'preprocess_dataset')
+    else:
+        input_path = settings.save_dataset_path_raw
     
     # 원본 데이터셋 로드
     if not input_path.exists():

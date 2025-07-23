@@ -24,8 +24,8 @@ def parse_args():
                         help='ID of the model to load from Hugging Face Hub')
     parser.add_argument('--dataset-name', type=str, default=os.getenv('DATASET'),
                         help='Name of the dataset to load from Hugging Face Hub')
-    parser.add_argument('--training_args_path', type=str, required=True,
-                        help='Path to YAML file for SFTConfig')
+    parser.add_argument('--train_config_path', type=str, required=True,
+                        help='Path to YAML file for SFTConfig (e.g., train_config.yaml)')
     parser.add_argument('--peft_config_path', type=str, required=True,
                         help='Path to YAML file for PEFT config')
     parser.add_argument('--wandb_token', type=str, default=os.getenv('WANDB_API_KEY'),
@@ -35,10 +35,14 @@ def parse_args():
     return parser.parse_args()
 
 class CustomTrainer:
-    def __init__(self, model_id, tokenizer, output_dir, dataset_path):
-        self.model_id = model_id
+    def __init__(self, model_loader, output_dir, dataset_path):
+        self.model_loader = model_loader
+
+        self.model = self.model_loader.model
+        self.tokenizer = self.model_loader.tokenizer
+
         self.output_dir = output_dir
-        self.tokenizer = tokenizer
+        
         self.data_collator = DataCollatorForLanguageModeling(
             tokenizer=self.tokenizer,
             mlm=False  # we're doing causal LM, not masked LM
@@ -50,23 +54,23 @@ class CustomTrainer:
             self.dataset = None
             print(f"Failed to load dataset. Directory not found: {dataset_path}")
 
-    def train(self, model_loader=None, training_args_dict=None, peft_config_dict=None, logging_dir=None):
-        if not model_loader.model:
+    def train(self, train_config_dict=None, peft_config_dict=None, logging_dir=None):
+        if not self.model or not self.tokenizer:
             print("Model or dataset is not loaded. Cannot proceed with training.")
             return
         
-        model = model_loader.model
+        model = self.model
         tokenizer = self.tokenizer
 
-        if training_args_dict:
+        if train_config_dict:
             # 사용자가 원하는 세팅의 configuration을 불러옵니다.
             print("Using custom training arguments from YAML file...")
-            training_args = SFTConfig(
-                    output_dir=self.output_dir / self.model_id,
-                    **training_args_dict
+            train_config = SFTConfig(
+                    output_dir=self.output_dir / self.model_loader.model_id,
+                    **train_config_dict
                 )
         else:
-            training_args = SFTConfig(
+            train_config = SFTConfig(
                 per_device_train_batch_size=8,
                 per_device_eval_batch_size=8,
                 gradient_accumulation_steps=2,
@@ -102,7 +106,7 @@ class CustomTrainer:
 
         trainer = SFTTrainer(
             model=model,
-            args=training_args,
+            args=train_config,
             train_dataset=self.dataset['train'],
             eval_dataset=self.dataset['validation'],
             processing_class=tokenizer,
@@ -121,39 +125,38 @@ class CustomTrainer:
         print(f"Training finished. Saving PEFT adapter to {self.output_dir}")
         trainer.save_model()  # PEFT 어댑터만 저장
         
-        # 병합된 모델 저장을 위한 경로 설정
-        merged_model_path = self.output_dir.parent / "merged_model"
-        merged_model_path.mkdir(parents=True, exist_ok=True)
+        # 병합된 배포용 모델 저장을 위한 경로 설정 (settings에서 관리)
+        deployment_model_path = settings.deployment_model_path
+        deployment_model_path.mkdir(parents=True, exist_ok=True)
         
-        print(f"Merging LoRA weights and saving full model to {merged_model_path}")
+        print(f"Merging LoRA weights and saving deployment-ready model to {deployment_model_path}")
         try:
             # PEFT 모델에서 병합된 모델 생성
             merged_model = trainer.model.merge_and_unload()
             
             # 병합된 모델과 토크나이저 저장
             merged_model.save_pretrained(
-                merged_model_path,
+                deployment_model_path,
                 safe_serialization=True,  # 안전한 텐서 포맷으로 저장
                 max_shard_size="5GB"  # 큰 모델을 위한 샤딩
             )
-            tokenizer.save_pretrained(merged_model_path)
+            tokenizer.save_pretrained(deployment_model_path)
             
             
-            print(f"✅ Successfully saved merged model and tokenizer to {merged_model_path}")
+            print(f"✅ Successfully saved deployment-ready model and tokenizer to {deployment_model_path}")
             print(f"✅ Model is ready for deployment or distribution")
             
         except Exception as e:
             print(f"❌ Error during model merging: {e}")
             print("Falling back to adapter-only save")
 
+        
         print("Clearing GPU cache to free up memory...")
         del trainer
         del model
         torch.cuda.empty_cache()
         
-        print(f"Model training completed. Adapter saved to {self.output_dir}, Merged model saved to {merged_model_path}")
-
-
+        print(f"Model training completed. Adapter saved to {self.output_dir}, Deployment-ready model saved to {deployment_model_path}")
 def main():
     args = parse_args()
     model_loader = ModelLoader(args.model_id)
@@ -180,19 +183,19 @@ def main():
     # --- 설정 파일 및 경로 로드 (settings.py 사용) ---
     print("Loading configurations from YAML files...")
 
-    training_args_dict = None
+    train_config_dict = None
     peft_config_dict = None
 
-    if args.training_args_path:
-        with open(settings.config_path / args.training_args_path, 'r') as f:
-            training_args_dict = yaml.safe_load(f)
+    if args.train_config_path:
+        with open(settings.config_path / args.train_config_path, 'r') as f:
+            train_config_dict = yaml.safe_load(f)
     
     if args.peft_config_path:
         with open(settings.config_path / args.peft_config_path, 'r') as f:
             peft_config_dict = yaml.safe_load(f)
     
     # CLI 조건에 따라 report_to 값을 덮어쓰기
-    training_args_dict['report_to'] = report_to
+    train_config_dict['report_to'] = report_to
     
     if not model_loader.model or not model_loader.tokenizer:
         print("Failed to load model or tokenizer. Cannot proceed with training.")
@@ -205,8 +208,16 @@ def main():
     logging_dir = settings.logging_dir
     logging_dir.mkdir(parents=True, exist_ok=True)
 
-    trainer = CustomTrainer(args.model_id, model_loader.tokenizer, output_dir, settings.save_dataset_path_formatted)
-    trainer.train(model_loader = model_loader, training_args_dict = training_args_dict, peft_config_dict = peft_config_dict, logging_dir=logging_dir)
+    # 데이터셋 경로 설정 - 파이프라인 환경에서는 이전 task의 output을 input1에서 읽음
+    if settings.is_pipeline_env:
+        readonly_dataset_path = settings.pipeline_input_path
+        # 읽기 전용 경로를 쓰기 가능한 임시 경로로 복사
+        dataset_path = settings.copy_readonly_to_writable(readonly_dataset_path, 'training')
+    else:
+        dataset_path = settings.save_dataset_path_formatted
+
+    trainer = CustomTrainer(model_loader, output_dir, dataset_path)
+    trainer.train(train_config_dict=train_config_dict, peft_config_dict=peft_config_dict, logging_dir=logging_dir)
 
 if __name__ == "__main__":
     main()

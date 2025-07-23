@@ -1,44 +1,29 @@
 #!/bin/bash
-# Gemma-3n 파인튜닝 환경 설정 스크립트
 
-echo "🚀 Gemma-3n Fine-tuning Environment Setup"
-echo "========================================="
-
-# 현재 위치 확인
-if [[ ! -d "pipeline-code" ]]; then
-    echo "❌ Error: pipeline-code 폴더를 찾을 수 없습니다."
-    echo "   gemma-3n 프로젝트 루트 디렉토리에서 실행해주세요."
+# --- 1. CLI의 첫 번째 인자를 VFOLDER_NAME 변수에 할당 ---
+# 인자가 제공되지 않았을 경우, 에러 메시지를 출력하고 스크립트를 종료합니다.
+if [ -z "$1" ]; then
+    echo "❌ Error: Please provide the base path for your vfolder as the first argument."
+    echo "Usage: ./setup_venv.sh /path/to/your/vfolder"
     exit 1
 fi
 
-# 가상환경 디렉토리 확인
-if [[ ! -d "pipeline-code/.gemma3n" ]]; then
-    echo "❌ Error: .gemma3n 가상환경을 찾을 수 없습니다."
-    echo "   먼저 가상환경을 생성해주세요:"
-    echo "   cd pipeline-code && python -m venv .gemma3n"
-    exit 1
+VFOLDER_NAME=$1
+# --------------------------------------------------------
+
+VENV_PATH="/pipeline/vfroot/.venv"
+REQUIREMENTS_PATH="/${VFOLDER_NAME}/backend.ai-fasttrack-examples/pytorch/gemma-3n/pipeline-code/requirements.txt"
+
+echo "Using base path: $VFOLDER_NAME"
+
+# 가상 환경이 존재하는지 확인
+if [ ! -d "$VENV_PATH" ]; then
+    echo "Virtual environment not found. Creating a new one at $VENV_PATH"
+    python -m venv "$VENV_PATH"
+    source "$VENV_PATH/bin/activate"
+    pip install -r "$REQUIREMENTS_PATH"
+else
+    echo "Existing virtual environment found at $VENV_PATH. Skipping creation and installation."
 fi
-
-# 가상환경 활성화
-echo "🔧 가상환경 활성화 중..."
-source pipeline-code/.gemma3n/bin/activate
-
-# 의존성 설치 확인
-echo "📦 의존성 설치 확인 중..."
-cd pipeline-code
-pip install -r requirements.txt
-
-echo "✅ 환경 설정 완료!"
-echo ""
-echo "🎯 사용 가능한 명령어:"
-echo "   python scripts/cli.py --help"
-echo ""
-echo "🔄 파이프라인 실행 예시:"
-echo "   python scripts/cli.py download-dataset"
-echo "   python scripts/cli.py preprocess-dataset"
-echo "   python scripts/cli.py format-dataset"
-echo ""
-echo "💡 종료할 때는 'deactivate' 명령어를 사용하세요."
-
-# 새로운 셸 시작
-exec bash
+# 가상 환경 활성화 및 패키지 설치
+echo "✅ Virtual environment setup complete."

@@ -37,7 +37,7 @@ def preprocess_dataset(config_path=None):
     print("=== Task 1b: Dataset Preprocessing ===")
     try:
         # CLI 인자 설정
-        config_file = config_path if config_path else 'dataset_config.yaml'
+        config_file = config_path if config_path else 'messages_format.yaml'
         print(f"Using dataset config: {config_file}")
         sys.argv = [
             'src/data/preprocess_dataset.py',
@@ -80,14 +80,14 @@ def evaluate_base_model():
         return False
     return True
 
-def fine_tune_model(training_args_path, peft_config_path):
+def fine_tune_model(train_config_path, peft_config_path):
     """Task 3: 모델 파인튜닝"""
     print("=== Task 3: Model Fine-tuning ===")
     try:
         # 파인튜닝을 위한 인자 설정
         sys.argv = [
             'src/training/trainer.py',
-            '--training_args_path', training_args_path,
+            '--train_config_path', train_config_path,
             '--peft_config_path', peft_config_path
         ]
         trainer_main()
@@ -115,7 +115,7 @@ def evaluate_finetuned_model():
         return False
     return True
 
-def run_full_pipeline(training_args_path, peft_config_path, config_path=None):
+def run_full_pipeline(train_config_path, peft_config_path, config_path=None):
     """전체 파이프라인 실행"""
     print("🚀 Starting Full Pipeline Execution")
     
@@ -124,7 +124,7 @@ def run_full_pipeline(training_args_path, peft_config_path, config_path=None):
         ("Dataset Preprocessing", preprocess_dataset(config_path)), 
         ("Dataset Formatting", format_dataset),
         ("Base Model Evaluation", evaluate_base_model),
-        ("Model Fine-tuning", lambda: fine_tune_model(training_args_path, peft_config_path)),
+        ("Model Fine-tuning", lambda: fine_tune_model(train_config_path, peft_config_path)),
         ("Fine-tuned Model Evaluation", evaluate_finetuned_model)
     ]
     
@@ -139,14 +139,14 @@ def run_full_pipeline(training_args_path, peft_config_path, config_path=None):
     return True
 
 def main():
-    parser = argparse.ArgumentParser(description="Gemma-3n Fine-tuning Pipeline")
+    parser = argparse.ArgumentParser(description="General language model Fine-tuning Pipeline")
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
     # 세분화된 데이터셋 태스크들
     subparsers.add_parser('download-dataset', help='Task 1a: Download dataset from HuggingFace')
 
     preprocess_dataset_parser = subparsers.add_parser('preprocess-dataset', help='Task 1b: Preprocess raw dataset')
-    preprocess_dataset_parser.add_argument('--config', type=str, help='Path to dataset preprocessing config file')
+    preprocess_dataset_parser.add_argument('--config', type=str, help='Path to dataset preprocessing config file (messages_format.yaml)')
     
     subparsers.add_parser('format-dataset', help='Task 1c: Format dataset with chat template')
     
@@ -154,20 +154,20 @@ def main():
     subparsers.add_parser('eval-base', help='Task 2: Evaluate base model')
     
     train_parser = subparsers.add_parser('train', help='Task 3: Fine-tune model')
-    train_parser.add_argument('--training_args_path', type=str, required=True,
-                             help='Path to training arguments YAML file')
+    train_parser.add_argument('--train_config_path', type=str, required=True,
+                             help='Path to training arguments YAML file (train_config.yaml)')
     train_parser.add_argument('--peft_config_path', type=str, required=True,
-                             help='Path to PEFT config YAML file')
+                             help='Path to PEFT config YAML file (peft_config.yaml)')
     
     subparsers.add_parser('eval-finetuned', help='Task 4: Evaluate fine-tuned model')
     
     # 전체 파이프라인 실행
     pipeline_parser = subparsers.add_parser('pipeline', help='Run full pipeline')
-    pipeline_parser.add_argument('--training_args_path', type=str, required=True,
-                                help='Path to training arguments YAML file')
+    pipeline_parser.add_argument('--train_config_path', type=str, required=True,
+                                help='Path to training arguments YAML file (train_config.yaml)')
     pipeline_parser.add_argument('--peft_config_path', type=str, required=True,
-                                help='Path to PEFT config YAML file')
-    pipeline_parser.add_argument('--config', type=str, help='Path to dataset preprocessing config file')
+                                help='Path to PEFT config YAML file (peft_config.yaml)')
+    pipeline_parser.add_argument('--config', type=str, help='Path to dataset preprocessing config file (messages_format.yaml)')
 
     
     args = parser.parse_args()
@@ -181,11 +181,11 @@ def main():
     elif args.command == 'eval-base':
         evaluate_base_model()
     elif args.command == 'train':
-        fine_tune_model(args.training_args_path, args.peft_config_path)
+        fine_tune_model(args.train_config_path, args.peft_config_path)
     elif args.command == 'eval-finetuned':
         evaluate_finetuned_model()
     elif args.command == 'pipeline':
-        run_full_pipeline(args.training_args_path, args.peft_config_path, config_path=args.config)
+        run_full_pipeline(args.train_config_path, args.peft_config_path, config_path=args.config)
     else:
         parser.print_help()
 

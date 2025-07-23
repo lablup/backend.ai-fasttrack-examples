@@ -38,7 +38,7 @@ pip install -r requirements.txt
 ```bash
 cd pipeline-code
 python scripts/cli.py pipeline \
-    --training_args_path training_args.yaml \
+    --train_config_path train_config.yaml \
     --peft_config_path peft_config.yaml
 ```
 
@@ -51,7 +51,7 @@ python scripts/cli.py download-dataset
 python scripts/cli.py preprocess-dataset
 
 # Task 1b (사용자 정의 설정 사용):
-python scripts/cli.py preprocess-dataset --config my_dataset_config.yaml
+python scripts/cli.py preprocess-dataset --config my_messages_format.yaml
 
 # Task 1c: 데이터셋 포맷팅
 python scripts/cli.py format-dataset
@@ -61,7 +61,7 @@ python scripts/cli.py eval-base
 
 # Task 3: 모델 파인튜닝
 python scripts/cli.py train \
-    --training_args_path training_args.yaml \
+    --train_config_path train_config.yaml \
     --peft_config_path peft_config.yaml
 
 # Task 4: 파인튜닝된 모델 평가
@@ -73,7 +73,7 @@ python scripts/cli.py eval-finetuned
 ### 기본 경로 설정
 - **데이터셋 저장 경로**: `{프로젝트_루트}/dataset/`
 - **PEFT 어댑터 저장 경로**: `{프로젝트_루트}/results/model/`
-- **병합된 모델 저장 경로**: `{프로젝트_루트}/results/merged_model/`
+- **배포용 모델 저장 경로**: `{프로젝트_루트}/results/deployment_model/`
 - **평가 결과 저장**: `{프로젝트_루트}/results/evaluation/`
 
 - (FastTrack pipeline용 폴더 설계) 확장 예정
@@ -87,12 +87,13 @@ gemma-3n/
 └── pipeline-code
     ├── configs/
     │   ├── settings.py          # 전역 설정
-    │   ├── training_args.yaml   # 훈련 인자 설정
-    │   └── peft_config.yaml     # PEFT(LoRA) 설정
+    │   ├── train_config.yaml    # 훈련 인자 설정
+    │   ├── peft_config.yaml     # PEFT(LoRA) 설정
+    │   └── messages_format.yaml # 데이터셋 전처리 설정
     ├── data/                    # 처리된 데이터셋 저장소
     ├── results/
     │   ├── model/              # PEFT 어댑터 저장소
-    │   ├── merged_model/       # 병합된 모델 저장소 (배포용)
+    │   ├── deployment_model/   # LoRA 가중치가 병합된 배포용 모델 저장소
     │   └── evaluation/         # 평가 결과 저장소
     ├── logs/                   # 훈련 로그 저장소
     ├── src/
@@ -125,7 +126,7 @@ gemma-3n/
 #### Task 1b: Dataset Preprocessing  
 - **파일**: `src/data/preprocess_dataset.py`
 - **입력**: `dataset/raw/` 폴더의 원본 데이터셋
-- **설정**: `configs/dataset_config.yaml` (사용자 정의 가능)
+- **설정**: `configs/messages_format.yaml` (사용자 정의 가능)
 - **처리**: 
   - 설정 파일 기반 데이터 전처리 (다양한 데이터셋 지원)
   - 컬럼 매핑을 통한 일반화된 전처리
@@ -135,7 +136,7 @@ gemma-3n/
 - **출력**: `dataset/preprocessed/` 폴더에 messages 구조의 데이터셋 저장
 
 #### ⚙️ 사용자 정의 데이터셋 설정
-`configs/dataset_config.yaml` 파일을 통해 다양한 데이터셋에 적용 가능:
+`configs/messages_format.yaml` 파일을 통해 다양한 데이터셋에 적용 가능:
 다양한 데이터셋을 파이프라인에 적용하는 자세한 방법은 [`pipeline-code/configs/README.md`](pipeline-code/configs/README.md)를 참조하세요.
 
 ```yaml
@@ -182,7 +183,7 @@ evaluate_columns:
 - **처리**: LoRA를 사용한 파라미터 효율적 파인튜닝
 - **출력**: 
   - PEFT 어댑터: `results/model/` 폴더
-  - 병합된 완전한 모델: `results/merged_model/` 폴더 (배포용)
+  - 배포용 완전한 모델: `results/deployment_model/` 폴더 (LoRA 가중치 병합됨)
 
 ### Task 4: Fine-tuned Model Evaluation
 - **입력**: 파인튜닝된 모델, 전처리된 테스트 데이터
@@ -191,7 +192,7 @@ evaluate_columns:
 
 ## 📊 설정 커스터마이징
 
-### 훈련 인자 수정 (`configs/training_args.yaml`)
+### 훈련 인자 수정 (`configs/train_config.yaml`)
 - 배치 크기, 학습률, 에포크 수 등 조정 가능
 - Weights & Biases 로깅 설정
 
@@ -219,9 +220,9 @@ evaluate_columns:
 ```python
 from transformers import AutoModelForCausalLM, AutoProcessor
 
-# 1. 로컬에서 병합된 모델 로드
-model = AutoModelForCausalLM.from_pretrained("./results/merged_model/")
-processor = AutoProcessor.from_pretrained("./results/merged_model/")
+# 1. 로컬에서 배포용 모델 로드
+model = AutoModelForCausalLM.from_pretrained("./results/deployment_model/")
+processor = AutoProcessor.from_pretrained("./results/deployment_model/")
 
 # 2. 추론 실행
 messages = [{"role": "user", "content": "What is the impact of inflation on stock prices?"}]
@@ -239,10 +240,10 @@ pip install huggingface_hub
 huggingface-cli login
 
 # 모델 업로드
-huggingface-cli upload your-username/gemma-3n-financial-qa ./results/merged_model/
+huggingface-cli upload your-username/gemma-3n-financial-qa ./results/deployment_model/
 ```
 
 ### 모델 구조
 
 - **PEFT 어댑터**: `results/model/` - LoRA 가중치만 포함, 작은 파일 크기
-- **병합된 모델**: `results/merged_model/` - 완전한 모델, 독립적으로 사용 가능
+- **배포용 모델**: `results/deployment_model/` - LoRA 가중치가 병합된 완전한 모델, 독립적으로 사용 가능

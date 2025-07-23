@@ -10,10 +10,6 @@ from datasets import load_from_disk, DatasetDict
 from pathlib import Path
 import sys
 
-# 프로젝트 루트를 sys.path에 추가
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
 from src.models.model import ModelLoader
 from configs.settings import settings
 
@@ -114,8 +110,13 @@ def main():
     
     tokenizer = model_loader.tokenizer
     
-    # 입력 경로 설정 (settings에서 중앙 관리)
-    input_path = settings.save_dataset_path_preprocessed
+    # 입력 경로 설정 - 파이프라인 환경에서는 이전 task의 output을 input1에서 읽음
+    if settings.is_pipeline_env:
+        readonly_input_path = settings.pipeline_input_path
+        # 읽기 전용 경로를 쓰기 가능한 임시 경로로 복사
+        input_path = settings.copy_readonly_to_writable(readonly_input_path, 'format_dataset')
+    else:
+        input_path = settings.save_dataset_path_preprocessed
     
     # 전처리된 데이터셋 로드
     if not input_path.exists():

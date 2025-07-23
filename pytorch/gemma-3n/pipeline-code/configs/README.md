@@ -1,11 +1,57 @@
-# 📚 Dataset Configuration 완전 가이드
+# 📚 Dataset Configuration 가이드
 
 이 폴더에는 다양한 데이터셋에 대한 설정 예시와 상세한 튜토리얼이 포함되어 있습니다.
 
 ## 🎯 기본 설정 파일
 
-- **`dataset_config.yaml`**: TheFinAI/Fino1_Reasoning_Path_FinQA 데이터셋용 기본 설정
-- **`my_dataset_config.yaml`**: 사용자 정의 데이터셋 예시 (문서 요약용)
+- **`messages_format.yaml`**: TheFinAI/Fino1_Reasoning_Path_FinQA 데이터셋용 기본 설정
+- **`my_messages_format.yaml`**: 사용자 정의 데이터셋 예시 (문서 요약용)
+
+### 예시 messages_format.yaml
+
+```yaml
+# Dataset Configuration for Preprocessing
+# 이 파일은 데이터셋 전처리 시 사용할 컬럼 매핑과 메시지 포맷을 정의합니다.
+
+# Training용 컬럼 매핑 (key: messages_format에서 사용할 변수명, value: 실제 데이터셋 컬럼명)
+training_columns:
+  question: "Open-ended Verifiable Question"
+  cot: "Complex_CoT" 
+  response: "Response"
+
+# Training용 messages 포맷 템플릿
+messages_format:
+  system_prompt: |
+    Below is an instruction that describes a task, paired with an input that provides further context. 
+    Write a response that appropriately completes the request. 
+    Before answering, think carefully about the question and create a step-by-step chain of thoughts to ensure a logical and accurate response.
+  
+  # messages 구조 정의 (role과 content로 구성)
+  messages:
+    - role: "system"
+      content: "{system_prompt}"
+    - role: "user" 
+      content: "{question}"
+    - role: "assistant"
+      content: "<think>\n{cot}\n</think>\n{response}"
+
+# Evaluation용 컬럼 매핑
+evaluate_columns:
+  query: "Open-ended Verifiable Question"
+  response: "Response"
+
+# 데이터 품질 필터링 설정
+data_filtering:
+  # 필수 체크할 컬럼들 (None 값과 빈 문자열 체크)
+  required_columns:
+    - "Open-ended Verifiable Question"
+    - "Complex_CoT"
+    - "Response"
+  
+  # 최소 텍스트 길이
+  min_text_length: 1
+```
+
 
 ## 🔧 설정 파일 구조 완전 이해
 
@@ -18,7 +64,7 @@ training_columns:
   response: "Response"
 ```
 
-**변수 설:**
+**변수 설명:**
 - **key (예: `question`, `cot`, `response`)**: `messages_format`에서 사용할 **템플릿 변수명**
 - **value (예: `"Open-ended Verifiable Question"`)**: HuggingFace 데이터셋의 **실제 컬럼명**
 
@@ -42,10 +88,10 @@ messages_format:
       content: "<think>\n{cot}\n</think>\n{response}"  # ← 여러 변수 조합 가능
 ```
 
-**변수 설:**
+**변수 설명:**
 - **system_prompt**: 모든 대화에 사용될 시스템 프롬프트 (선택사항)
 - **messages**: 실제 대화 구조를 정의하는 리스트
-  - **role**: `"system"`, `"user"`, `"assistant"` 중 하나
+  - **role**: `"system"`, `"user"`, `"assistant"` 중 하나, 특정 language model은 `role: "system"`이 호환되지 않을 수 있으니 주의.
   - **content**: 실제 내용 (중괄호 `{}` 안에 변수명 사용)
 
 **⚠️ 변수 사용 규칙:**
@@ -65,7 +111,7 @@ evaluate_columns:
 **변수 설명:**
 - **query**: 평가 시 모델에게 입력할 질문이 담긴 컬럼명
 - **response**: 평가 시 정답으로 사용할 응답이 담긴 컬럼명
-- **고정 key**: 반드시 `query`와 `response` key를 사용해야 함
+- **고정 key**: 반드시 `query`와 `response`를 key로 사용해야 함
 
 ### 4. **data_filtering** (데이터 품질 필터링)
 
@@ -212,7 +258,7 @@ evaluate_columns:
   response: "answer"
 ```
 
-## 📚 추가 리소스
+## 📚 추가 참고사항
 
 - **HuggingFace Datasets 문서**: https://huggingface.co/docs/datasets
 - **Chat Template 가이드**: https://huggingface.co/docs/transformers/chat_templating
