@@ -1,0 +1,11 @@
+pipeline-code/.env
+pipeline-code/.gemma-3n/*
+pipeline-code/dataset/*
+pipeline-code/results/*
+pipeline-code/logs/*
+pipeline-code/.gemma3n/*
+pipeline-code/wandb/*
+wandb/*
+__pycache__/*
+*.pyc
+.ipynb_checkpoints
