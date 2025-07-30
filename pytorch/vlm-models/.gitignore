@@ -1,0 +1,10 @@
+pipeline-code/.env
+pipeline-code/.venv/*
+pipeline-code/dataset/*
+pipeline-code/results/*
+pipeline-code/logs/*
+pipeline-code/wandb/*
+wandb/*
+__pycache__/*
+*.pyc
+.ipynb_checkpoints
