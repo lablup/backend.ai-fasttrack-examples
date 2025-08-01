@@ -36,8 +36,9 @@ def load_and_split_dataset(dataset_name, hf_token, trust_remote_code=False) -> D
     available_splits = set(get_dataset_split_names(dataset_name, **hub_kwargs))
     print(f"Available splits: {list(available_splits)}")
 
-    if 'train' not in available_splits:
-        raise ValueError(f"Dataset '{dataset_name}' must have a 'train' split.")
+    # 최소 하나의 스플릿은 있어야 함
+    if not available_splits:
+        raise ValueError(f"Dataset '{dataset_name}' has no available splits.")
 
     # 모든 스플릿 로드
     dataset = load_dataset(dataset_name, token=hf_token, trust_remote_code=trust_remote_code)
@@ -81,6 +82,60 @@ def load_and_split_dataset(dataset_name, hf_token, trust_remote_code=False) -> D
         dataset['validation'] = val_test_split['train']
         dataset['test'] = val_test_split['test']
         return dataset
+    
+    # Case 5: validation 스플릿만 존재하는 경우 -> 80/10/10으로 분할
+    elif not has_train and has_val and not has_test:
+        print("Only 'validation' split found. Creating 'train' (80%), 'validation' (10%) and 'test' (10%) splits.")
+        # 1. validation -> train (80%) / temp (20%)
+        train_temp_split = dataset['validation'].train_test_split(test_size=0.2, shuffle=True, seed=42)
+        # 2. temp (20%) -> validation (10%) / test (10%)
+        val_test_split = train_temp_split['test'].train_test_split(test_size=0.5, shuffle=True, seed=42)
+        
+        return DatasetDict({
+            'train': train_temp_split['train'],
+            'validation': val_test_split['train'],
+            'test': val_test_split['test']
+        })
+    
+    # Case 6: test 스플릿만 존재하는 경우 -> 80/10/10으로 분할
+    elif not has_train and not has_val and has_test:
+        print("Only 'test' split found. Creating 'train' (80%), 'validation' (10%) and 'test' (10%) splits.")
+        # 1. test -> train (80%) / temp (20%)
+        train_temp_split = dataset['test'].train_test_split(test_size=0.2, shuffle=True, seed=42)
+        # 2. temp (20%) -> validation (10%) / test (10%)
+        val_test_split = train_temp_split['test'].train_test_split(test_size=0.5, shuffle=True, seed=42)
+        
+        return DatasetDict({
+            'train': train_temp_split['train'],
+            'validation': val_test_split['train'],
+            'test': val_test_split['test']
+        })
+    
+    # Case 7: validation과 test 스플릿만 존재하는 경우 -> validation을 train과 validation으로 분할
+    elif not has_train and has_val and has_test:
+        print("Found 'validation' and 'test'. Creating 'train' split from 'validation'.")
+        train_val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=True, seed=42)
+        dataset['train'] = train_val_split['train']
+        dataset['validation'] = train_val_split['test']
+        return dataset
+    
+    # Case 8: 알 수 없는 다른 스플릿들이 있는 경우 - 첫 번째 스플릿을 사용
+    else:
+        available_split_names = list(dataset.keys())
+        if available_split_names:
+            first_split = available_split_names[0]
+            print(f"Unknown split configuration. Using '{first_split}' split to create train/validation/test splits.")
+            # 첫 번째 스플릿을 80/10/10으로 분할
+            train_temp_split = dataset[first_split].train_test_split(test_size=0.2, shuffle=True, seed=42)
+            val_test_split = train_temp_split['test'].train_test_split(test_size=0.5, shuffle=True, seed=42)
+            
+            return DatasetDict({
+                'train': train_temp_split['train'],
+                'validation': val_test_split['train'],
+                'test': val_test_split['test']
+            })
+        else:
+            raise ValueError(f"No valid splits found in dataset '{dataset_name}'")
         
     return dataset
 

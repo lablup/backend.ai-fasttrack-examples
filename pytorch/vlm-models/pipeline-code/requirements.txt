@@ -1,5 +1,5 @@
-torch==2.5.0
-transformers
+torch>=2.5.0
+transformers>=4.46.0
 datasets
 accelerate
 evaluate
@@ -10,7 +10,7 @@ protobuf
 sentencepiece
 argparse
 pathlib
-dotenv
+python-dotenv
 pydantic-settings
 wandb
 pillow
@@ -21,3 +21,7 @@ absl-py
 rouge_score
 timm
 pyyaml
+# VLM 특화 패키지
+qwen-vl-utils  # Qwen2-VL 전용 유틸리티
+opencv-python  # 이미지/비디오 처리
+decord  # 비디오 디코딩

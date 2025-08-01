@@ -1,0 +1,60 @@
+# VLM Model Configuration
+# 다양한 VLM 모델에 대한 클래스 매핑 설정
+
+# 모델별 클래스 매핑
+model_classes:
+    # Qwen2-VL 모델들
+    "Qwen/Qwen2-VL-2B-Instruct":
+        model_class: "Qwen2VLForConditionalGeneration"
+        processor_class: "Qwen2VLProcessor"
+        import_path: "transformers"
+
+    "Qwen/Qwen2-VL-7B-Instruct":
+        model_class: "Qwen2VLForConditionalGeneration"
+        processor_class: "Qwen2VLProcessor"
+        import_path: "transformers"
+
+    # LLaVA 모델들
+    "llava-hf/llava-1.5-7b-hf":
+        model_class: "LlavaForConditionalGeneration"
+        processor_class: "LlavaProcessor"
+        import_path: "transformers"
+
+    "llava-hf/llava-1.5-13b-hf":
+        model_class: "LlavaForConditionalGeneration"
+        processor_class: "LlavaProcessor"
+        import_path: "transformers"
+
+    # InternVL 모델들
+    "OpenGVLab/InternVL2-2B":
+        model_class: "InternVLChatModel"
+        processor_class: "InternVLChatProcessor"
+        import_path: "transformers"
+
+    # PaliGemma 모델들
+    "google/paligemma-3b-pt-448":
+        model_class: "PaliGemmaForConditionalGeneration"
+        processor_class: "PaliGemmaProcessor"
+        import_path: "transformers"
+
+    # Phi-3-Vision 모델들
+    "microsoft/Phi-3-vision-128k-instruct":
+        model_class: "Phi3VForCausalLM"
+        processor_class: "Phi3VProcessor"
+        import_path: "transformers"
+
+# 기본 fallback 설정 (AutoModel 사용)
+default_fallback:
+    model_class: "AutoModelForCausalLM"
+    processor_class: "AutoProcessor"
+    import_path: "transformers"
+
+# 공통 로딩 파라미터
+loading_params:
+    torch_dtype: "torch.bfloat16"
+    device_map: "auto"
+    trust_remote_code: true
+
+# 프로세서 공통 설정
+processor_params:
+    trust_remote_code: true

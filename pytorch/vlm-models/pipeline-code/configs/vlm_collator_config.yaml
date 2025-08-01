@@ -1,0 +1,73 @@
+# VLM Data Collator Configuration
+# 다양한 VLM 모델과 데이터셋에 대한 data collator 설정
+
+# 데이터셋별 컬럼 매핑
+dataset_columns:
+    # 기본 VQA 데이터셋 구조
+    image_column: "image" # 이미지 컬럼명
+    question_column: "question" # 질문 컬럼명
+    answer_column: "answer" # 답변 컬럼명
+
+    # 추가 컬럼들 (선택사항)
+    context_column: null # 컨텍스트 정보
+    metadata_column: null # 메타데이터
+
+# 메시지 포맷 템플릿
+message_format:
+    system_prompt: "Answer briefly."
+
+    # 학습용 메시지 구조 (user + assistant)
+    training_messages:
+        - role: "user"
+          content:
+              - type: "text"
+                text: "{system_prompt}"
+              - type: "image"
+              - type: "text"
+                text: "{question}"
+        - role: "assistant"
+          content:
+              - type: "text"
+                text: "{answer}"
+
+    # 평가용 메시지 구조 (user만, generation_prompt=True)
+    evaluation_messages:
+        - role: "user"
+          content:
+              - type: "text"
+                text: "{system_prompt}"
+              - type: "image"
+              - type: "text"
+                text: "{question}"
+
+# 이미지 전처리 설정
+image_processing:
+    convert_to_rgb: true # RGB로 변환 여부
+    resize_mode: "keep_aspect" # 리사이즈 모드: keep_aspect, crop, stretch
+    max_size: null # 최대 크기 제한 (선택사항)
+
+# 텍스트 처리 설정
+text_processing:
+    padding: true # 패딩 적용 여부
+    truncation: true # 자르기 적용 여부
+    max_length: 2048 # 최대 길이
+    add_generation_prompt: false # 학습시 generation prompt 추가 여부
+
+# 레이블 마스킹 설정
+label_masking:
+    mask_pad_token: true # 패딩 토큰 마스킹
+    mask_image_token: true # 이미지 토큰 마스킹
+    mask_input_tokens: false # 입력 토큰 마스킹 (instruction tuning시 false)
+    ignore_index: -100 # 마스킹된 토큰의 라벨 값
+
+# 배치 처리 설정
+batch_processing:
+    return_tensors: "pt" # 반환할 텐서 타입
+    padding_strategy: "longest" # 패딩 전략: longest, max_length
+
+# 특수 토큰 설정 (모델별로 다를 수 있음)
+special_tokens:
+    image_token: "<image>" # 이미지 토큰
+    video_token: "<video>" # 비디오 토큰 (필요시)
+    pad_token: null # 패드 토큰 (auto-detect)
+    eos_token: null # EOS 토큰 (auto-detect)
