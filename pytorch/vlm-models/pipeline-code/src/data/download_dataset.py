@@ -6,7 +6,7 @@ HuggingFace에서 데이터셋을 다운로드하고 train/validation/test 스�
 
 import os
 import argparse
-from datasets import load_dataset, get_dataset_split_names, DatasetDict
+from datasets import load_dataset, get_dataset_split_names, DatasetDict, concatenate_datasets
 from pathlib import Path
 from configs.settings import settings
 
@@ -111,13 +111,23 @@ def load_and_split_dataset(dataset_name, hf_token, trust_remote_code=False) -> D
             'test': val_test_split['test']
         })
     
-    # Case 7: validation과 test 스플릿만 존재하는 경우 -> validation을 train과 validation으로 분할
+    # Case 7: validation과 test 스플릿만 존재하는 경우 -> 전체를 8:1:1로 재구성
     elif not has_train and has_val and has_test:
-        print("Found 'validation' and 'test'. Creating 'train' split from 'validation'.")
-        train_val_split = dataset['validation'].train_test_split(test_size=0.5, shuffle=True, seed=42)
-        dataset['train'] = train_val_split['train']
-        dataset['validation'] = train_val_split['test']
-        return dataset
+        print("Found 'validation' and 'test'. Combining and redistributing to achieve 8:1:1 ratio.")
+        
+        # validation과 test를 합쳐서 전체 데이터로 만들기
+        combined_dataset = concatenate_datasets([dataset['validation'], dataset['test']])
+        
+        # 전체를 80/20으로 먼저 분할 (train 80% / temp 20%)
+        train_temp_split = combined_dataset.train_test_split(test_size=0.2, shuffle=True, seed=42)
+        # temp 20%를 다시 50/50으로 분할 (validation 10% / test 10%)
+        val_test_split = train_temp_split['test'].train_test_split(test_size=0.5, shuffle=True, seed=42)
+        
+        return DatasetDict({
+            'train': train_temp_split['train'],
+            'validation': val_test_split['train'],
+            'test': val_test_split['test']
+        })
     
     # Case 8: 알 수 없는 다른 스플릿들이 있는 경우 - 첫 번째 스플릿을 사용
     else:

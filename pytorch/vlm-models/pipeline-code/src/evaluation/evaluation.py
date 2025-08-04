@@ -16,10 +16,6 @@ from peft import PeftModel
 from tqdm import tqdm
 import evaluate
 
-# # 프로젝트 루트를 sys.path에 추가
-# project_root = Path(__file__).parent.parent.parent
-# sys.path.insert(0, str(project_root))
-
 from src.models.model import ModelLoader
 from configs.settings import settings
 

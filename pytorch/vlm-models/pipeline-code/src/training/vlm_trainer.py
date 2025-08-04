@@ -84,10 +84,7 @@ class VLMTrainer:
             print("❌ Dataset is not loaded. Cannot proceed with training.")
             return
         
-        model = self.model
-        processor = self.processor
-        
-        # 학습 설정
+        # 학습 설정 (self. 직접 사용으로 일관성 유지)
         if train_config_dict:
             print("Using custom VLM training arguments from YAML file...")
             train_config = SFTConfig(
@@ -129,13 +126,13 @@ class VLMTrainer:
                 bias="none"
             )
         
-        # SFT 트레이너 생성
+        # SFT 트레이너 생성 (self. 직접 사용으로 일관성 유지)
         trainer = SFTTrainer(
-            model=model,
+            model=self.model,  # self. 직접 사용
             args=train_config,
             train_dataset=self.dataset['train'],
             eval_dataset=self.dataset.get('validation'),
-            processing_class=processor,
+            processing_class=self.processor,  # self. 직접 사용
             peft_config=peft_config,
             data_collator=self.data_collator,  # VLM 전용 데이터 콜레이터 사용
         )
@@ -187,10 +184,10 @@ class VLMTrainer:
             print(f"❌ Error during VLM model merging: {e}")
             print("Falling back to adapter-only save")
 
-        # GPU 메모리 정리
+        # GPU 메모리 정리 (self. 직접 사용으로 일관성 유지)
         print("🧹 Clearing GPU cache to free up memory...")
         del trainer
-        del model
+        del self.model  # 일관성을 위해 self.model 직접 참조
         import torch
         torch.cuda.empty_cache()
         
