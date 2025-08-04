@@ -11,6 +11,7 @@ dataset_columns:
     # 추가 컬럼들 (선택사항)
     context_column: null # 컨텍스트 정보
     metadata_column: null # 메타데이터
+    video_column: "video" # 비디오 컬럼명 (새로 추가)
 
 # 메시지 포맷 템플릿
 message_format:
@@ -39,6 +40,11 @@ message_format:
               - type: "image"
               - type: "text"
                 text: "{question}"
+
+# 데이터 타입별 처리 활성화 설정
+data_processing:
+    image_data: true # 이미지 데이터 처리 활성화 여부 (기본값: true)
+    video_data: false # 비디오 데이터 처리 활성화 여부 (기본값: false)
 
 # 이미지 전처리 설정
 image_processing:
@@ -71,3 +77,18 @@ special_tokens:
     video_token: "<video>" # 비디오 토큰 (필요시)
     pad_token: null # 패드 토큰 (auto-detect)
     eos_token: null # EOS 토큰 (auto-detect)
+
+# 비디오 처리 설정
+video_processing:
+    enabled: true # 비디오 처리 활성화 여부
+
+    # 프레임 추출 및 샘플링 설정
+    frame_extraction:
+        library: "decord" # 비디오 로딩 라이브러리 (decord 권장)
+        sampling_strategy: "uniform" # 샘플링 전략 (uniform: 균등 샘플링)
+        num_frames: 8 # 추출할 프레임 수
+
+    # 비디오 파일 처리 설정
+    file_processing:
+        convert_to_rgb: true # RGB 변환 여부
+        max_duration: null # 최대 비디오 길이 (초, null=제한없음)
