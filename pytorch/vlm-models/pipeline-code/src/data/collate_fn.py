@@ -59,10 +59,7 @@ class VLMDataCollator:
         self.processor = processor
         self.config = config
         
-        # 특수 토큰 ID 미리 계산
-        self._setup_special_tokens()
-        
-        # 설정값들을 쉽게 접근할 수 있도록 저장
+        # 설정값들을 쉽게 접근할 수 있도록 저장 (특수 토큰 설정 전에 먼저 초기화)
         self.dataset_columns = self.config.get('dataset_columns', {})
         self.message_format = self.config.get('message_format', {})
         self.data_processing = self.config.get('data_processing', {})  # 새로 추가
@@ -72,6 +69,9 @@ class VLMDataCollator:
         self.batch_processing = self.config.get('batch_processing', {})
         self.special_tokens_config = self.config.get('special_tokens', {})
         self.video_processing = self.config.get('video_processing', {})  # 비디오 처리 설정 추가
+        
+        # 특수 토큰 ID 미리 계산 (설정 초기화 후)
+        self._setup_special_tokens()
     
     def _setup_special_tokens(self):
         """특수 토큰 ID들을 미리 설정합니다."""

@@ -228,7 +228,7 @@ def main():
         # 읽기 전용 경로를 쓰기 가능한 임시 경로로 복사
         dataset_path = settings.copy_readonly_to_writable(readonly_dataset_path, 'evaluation')
     else:
-        dataset_path = settings.save_dataset_path_formatted
+        dataset_path = settings.save_dataset_path_raw
         
     try:
         # load_from_disk를 사용하여 저장된 데이터셋 전체를 불러옵니다.

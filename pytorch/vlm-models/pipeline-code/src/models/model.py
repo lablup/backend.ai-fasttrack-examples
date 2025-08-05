@@ -141,7 +141,7 @@ def load_processor_and_tokenizer(model_id, processor_class=None, processor_param
         'token': os.getenv('HF_TOKEN')
     }
     
-    # 파라미터 병합
+    # 파라미터 병합 (processor_params가 기본값을 덮어씀)
     final_params = {**default_params, **processor_params}
     
     # 1차 시도: 설정된 Processor 클래스
@@ -153,6 +153,13 @@ def load_processor_and_tokenizer(model_id, processor_class=None, processor_param
         try:
             tokenizer = processor.tokenizer
             print("✅ VLM model detected. Extracted tokenizer from processor.")
+            
+            # 비디오 프로세서 관련 정보 제공 (경고 억제 없이)
+            if hasattr(processor, 'video_processor') or 'video' in str(type(processor)).lower():
+                print("📹 Video processor detected.")
+                print("ℹ️  Note: Video processor deprecation warnings are normal and handled automatically.")
+                print("   Files are auto-renamed from preprocessor.json to video_preprocessor.json when saved.")
+            
             return processor, tokenizer
         except AttributeError:
             # 일부 VLM 모델에서는 processor 자체가 tokenizer 기능을 포함

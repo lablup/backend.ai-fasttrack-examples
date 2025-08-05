@@ -58,3 +58,4 @@ loading_params:
 # 프로세서 공통 설정
 processor_params:
     trust_remote_code: true
+    use_fast: true # fast processor 지원 모델용 (Qwen2-VL, SmolVLM, GLM-4V, LLaVA 등)

@@ -126,13 +126,13 @@ class VLMTrainer:
                 bias="none"
             )
         
-        # SFT 트레이너 생성 (self. 직접 사용으로 일관성 유지)
+        # SFT 트레이너 생성 (VLM processor 사용)
         trainer = SFTTrainer(
             model=self.model,  # self. 직접 사용
             args=train_config,
             train_dataset=self.dataset['train'],
             eval_dataset=self.dataset.get('validation'),
-            processing_class=self.processor,  # self. 직접 사용
+            processing_class=self.processor,  # VLM processor 전체를 사용
             peft_config=peft_config,
             data_collator=self.data_collator,  # VLM 전용 데이터 콜레이터 사용
         )
