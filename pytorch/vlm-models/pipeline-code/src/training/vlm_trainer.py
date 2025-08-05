@@ -32,9 +32,9 @@ def parse_args():
                         help='Path to YAML file for SFTConfig (e.g., train_config.yaml)')
     parser.add_argument('--peft_config_path', type=str, required=True,
                         help='Path to YAML file for PEFT config')
-    parser.add_argument('--vlm_model_config', type=str, default='vlm_model_config.yaml',
+    parser.add_argument('--vlm_model_config', type=str, required=True,
                         help='Path to VLM model configuration file')
-    parser.add_argument('--vlm_collator_config', type=str, default='vlm_collator_config.yaml',
+    parser.add_argument('--vlm_collator_config', type=str, required=True,
                         help='Path to VLM collator configuration file')
     parser.add_argument('--wandb_token', type=str, default=os.getenv('WANDB_API_KEY'),
                         help='Weights & Biases API token for logging.')

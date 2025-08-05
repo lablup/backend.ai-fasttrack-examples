@@ -24,7 +24,7 @@ def download_dataset():
     try:
         # 환경 변수에서 인자 대신 직접 호출
         original_sys_argv = sys.argv.copy()
-        sys.argv = ['download_dataset.py']  # 스크립트명만 유지
+        sys.argv = ['src/data/download_dataset.py']  # 스크립트명만 유지
         download_dataset_main()
         sys.argv = original_sys_argv
         print("✅ Dataset download completed successfully")
@@ -38,7 +38,11 @@ def evaluate_base_model():
     print("=== Task 2: Base VLM Model Evaluation ===")
     try:
         original_sys_argv = sys.argv.copy()
-        sys.argv = ['evaluation.py']
+        sys.argv = [
+            'src/evaluation/evaluation.py',
+            '--model_name_or_path', os.getenv('MODEL_ID'),
+            '--output_path', 'base_model_evaluation.json',
+            ]
         evaluation_main()
         sys.argv = original_sys_argv
         print("✅ Base model evaluation completed successfully")
@@ -53,7 +57,7 @@ def fine_tune_vlm_model(train_config_path, peft_config_path, vlm_model_config, v
     try:
         original_sys_argv = sys.argv.copy()
         sys.argv = [
-            'vlm_trainer.py',
+            'src/training/vlm_trainer.py',
             '--train_config_path', train_config_path,
             '--peft_config_path', peft_config_path,
             '--vlm_model_config', vlm_model_config,
@@ -72,7 +76,12 @@ def evaluate_finetuned_vlm_model():
     print("=== Task 4: Fine-tuned VLM Model Evaluation ===")
     try:
         original_sys_argv = sys.argv.copy()
-        sys.argv = ['evaluation.py', '--use_adapter']
+        sys.argv = [
+            'src/evaluation/evaluation.py',
+            '--model_name_or_path', os.getenv('MODEL_ID'),
+            '--output_path', 'finetuned_model_evaluation.json',
+            '--use_adapter'
+            ]
         evaluation_main()
         sys.argv = original_sys_argv
         print("✅ Fine-tuned model evaluation completed successfully")
@@ -116,9 +125,9 @@ def main():
                              help='Path to training arguments YAML file (train_config.yaml)')
     train_parser.add_argument('--peft_config_path', type=str, required=True,
                              help='Path to PEFT config YAML file (peft_config.yaml)')
-    train_parser.add_argument('--vlm_model_config', type=str, default='vlm_model_config.yaml',
+    train_parser.add_argument('--vlm_model_config', type=str, required=True,
                              help='Path to VLM model config YAML file')
-    train_parser.add_argument('--vlm_collator_config', type=str, default='vlm_collator_config.yaml',
+    train_parser.add_argument('--vlm_collator_config', type=str, required=True,
                              help='Path to VLM collator config YAML file')
     
     subparsers.add_parser('eval-finetuned', help='Task 4: Evaluate fine-tuned VLM model')
@@ -129,9 +138,9 @@ def main():
                                 help='Path to training arguments YAML file (train_config.yaml)')
     pipeline_parser.add_argument('--peft_config_path', type=str, required=True,
                                 help='Path to PEFT config YAML file (peft_config.yaml)')
-    pipeline_parser.add_argument('--vlm_model_config', type=str, default='vlm_model_config.yaml',
+    pipeline_parser.add_argument('--vlm_model_config', type=str, required=True,
                                 help='Path to VLM model config YAML file')
-    pipeline_parser.add_argument('--vlm_collator_config', type=str, default='vlm_collator_config.yaml',
+    pipeline_parser.add_argument('--vlm_collator_config', type=str, required=True,
                                 help='Path to VLM collator config YAML file')
     
     args = parser.parse_args()
