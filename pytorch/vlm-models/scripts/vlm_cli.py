@@ -38,7 +38,7 @@ def evaluate_base_model():
     print("=== Task 2: Base VLM Model Evaluation ===")
     try:
         original_sys_argv = sys.argv.copy()
-        sys.argv = ['evaluation.py', '--use_adapter=False']
+        sys.argv = ['evaluation.py']
         evaluation_main()
         sys.argv = original_sys_argv
         print("✅ Base model evaluation completed successfully")
@@ -72,7 +72,7 @@ def evaluate_finetuned_vlm_model():
     print("=== Task 4: Fine-tuned VLM Model Evaluation ===")
     try:
         original_sys_argv = sys.argv.copy()
-        sys.argv = ['evaluation.py', '--use_adapter=True']
+        sys.argv = ['evaluation.py', '--use_adapter']
         evaluation_main()
         sys.argv = original_sys_argv
         print("✅ Fine-tuned model evaluation completed successfully")
