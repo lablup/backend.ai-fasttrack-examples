@@ -84,16 +84,13 @@ class VLMDataCollator:
         tokenizer = getattr(self.processor, 'tokenizer', self.processor)
         print(f"📊 Tokenizer type: {type(tokenizer).__name__}")
         
-        # 1. special_tokens_map의 모든 토큰 처리
+        # 1. special_tokens_map의 모든 토큰 처리 (additional_special_tokens 포함)
         self._process_all_special_tokens(tokenizer)
         
-        # 2. additional_special_tokens 처리
-        self._process_additional_tokens(tokenizer)
-        
-        # 3. apply_chat_template 호환성 검증
+        # 2. apply_chat_template 호환성 검증
         self._verify_chat_template_compatibility(tokenizer)
         
-        # 4. Manual config 처리 (고급 사용자용 override)
+        # 3. Manual config 처리 (고급 사용자용 override)
         self._process_manual_config_if_enabled(tokenizer)
         
         print(f"✅ Auto-detection complete.")
@@ -101,14 +98,19 @@ class VLMDataCollator:
         print(f"   🚫 Tokens to ignore in loss: {len(self.ignore_in_loss_ids)}")
 
     def _process_all_special_tokens(self, tokenizer):
-        """special_tokens_map의 모든 특수 토큰을 처리합니다."""
+        """special_tokens_map의 모든 특수 토큰과 additional_special_tokens를 모두 처리합니다."""
         print("  🔧 Processing all special tokens from special_tokens_map...")
         
         special_tokens_map = getattr(tokenizer, 'special_tokens_map', {})
         print(f"special_tokens_map length : {len(special_tokens_map)}")
 
+        # 1. special_tokens_map 처리
         for token_attr, token_str in special_tokens_map.items():
             try:
+                # additional_special_tokens는 별도로 처리하므로 건너뛰기
+                if token_attr == 'additional_special_tokens':
+                    continue
+                    
                 # 토큰 ID 가져오기 (getattr로 통일)
                 token_id = getattr(tokenizer, f'{token_attr}_id', None)
                 
@@ -118,29 +120,29 @@ class VLMDataCollator:
                         # 리스트인 경우 모든 ID를 처리
                         print(f"    📝 Token ID '{token_attr}_id' is a list: {token_id}, adding all IDs")
                         for idx, single_id in enumerate(token_id):
-                            # 각 ID에 대해 개별 처리
-                            clean_name = token_attr.replace('_token', '')
+                            # token_attr 그대로 사용 (clean_name 사용 안함)
                             if len(token_id) > 1:
                                 # 여러 ID가 있는 경우 인덱스 추가
-                                clean_name = f"{clean_name}_{idx}"
+                                token_name = f"{token_attr}_{idx}"
+                            else:
+                                token_name = token_attr
                             
-                            self.special_token_ids[clean_name] = single_id
+                            self.special_token_ids[token_name] = single_id
                             self.ignore_in_loss_ids.add(single_id)
-                            print(f"    ✅ {clean_name}: '{token_str}' -> ID: {single_id}")
+                            print(f"    ✅ {token_name}: '{token_str}' -> ID: {single_id}")
                     else:
                         print(f"    ⚠️ Token ID '{token_attr}_id' is an empty list, skipping")
                         continue
                 else:
                     # 단일 ID인 경우
                     if token_id is not None:
-                        # 토큰 이름 정리 (예: 'pad_token' -> 'pad')
-                        clean_name = token_attr.replace('_token', '')
-                        self.special_token_ids[clean_name] = token_id
+                        # token_attr 그대로 사용 (clean_name 사용 안함)
+                        self.special_token_ids[token_attr] = token_id
                         
                         # 모든 특수 토큰은 기본적으로 손실 계산에서 제외
                         self.ignore_in_loss_ids.add(token_id)
                         
-                        print(f"    ✅ {clean_name}: '{token_str}' -> ID: {token_id}")
+                        print(f"    ✅ {token_attr}: '{token_str}' -> ID: {token_id}")
                     else:
                         print(f"    ⚠️ No ID found for token '{token_attr}': '{token_str}'")
                     
@@ -150,10 +152,8 @@ class VLMDataCollator:
                 print(f"    🔍 Token attr: '{token_attr}', Token str: {token_str}, Token ID: {token_id}")
                 continue
 
-    def _process_additional_tokens(self, tokenizer):
-        """additional_special_tokens를 처리합니다."""
+        # 2. additional_special_tokens 처리 (통합)
         print("  🎯 Processing additional special tokens...")
-        
         additional_tokens = getattr(tokenizer, 'additional_special_tokens', [])
         additional_token_ids = getattr(tokenizer, 'additional_special_tokens_ids', [])
         
@@ -562,7 +562,6 @@ class VLMDataCollator:
             
             # 1. 비디오 처리 (video_data 플래그가 활성화된 경우)
             if process_video:
-                print(f"📹 Processed video with {len(video_frames)} frames")
                 video_col = self.dataset_columns.get('video_column', 'video')
                 if video_col in example and example[video_col] is not None:
                     video_frames = self._process_video(example[video_col])
@@ -572,7 +571,6 @@ class VLMDataCollator:
             
             # 2. 이미지 처리 (image_data 플래그가 활성화된 경우)
             if process_image and not processed_visuals:  # 비디오가 처리되지 않은 경우에만
-                print(f"🖼️ Processed single image")
                 image_col = self.dataset_columns.get('image_column', 'image')
                 if image_col in example and example[image_col] is not None:
                     processed_image = self._process_image(example[image_col])

@@ -127,12 +127,13 @@ class VLMTrainer:
             )
         
         # SFT 트레이너 생성 (VLM processor 사용)
+        # 중요: Qwen2VLProcessor는 직접 eos_token 속성이 없으므로 tokenizer를 직접 전달
         trainer = SFTTrainer(
             model=self.model,  # self. 직접 사용
             args=train_config,
             train_dataset=self.dataset['train'],
             eval_dataset=self.dataset.get('validation'),
-            processing_class=self.processor,  # VLM processor 전체를 사용
+            tokenizer=self.tokenizer,  # tokenizer를 직접 전달 (processor 대신)
             peft_config=peft_config,
             data_collator=self.data_collator,  # VLM 전용 데이터 콜레이터 사용
         )
