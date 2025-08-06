@@ -11,12 +11,12 @@ model_classes:
     # Qwen2-VL 모델들 (특수 processor 필요)
     "Qwen/Qwen2-VL-2B-Instruct":
         model_class: "Qwen2VLForConditionalGeneration"
-        processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
+        # processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
         import_path: "transformers"
 
     "Qwen/Qwen2-VL-7B-Instruct":
         model_class: "Qwen2VLForConditionalGeneration"
-        processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
+        # processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
         import_path: "transformers"
 
     # LLaVA 모델들 (AutoProcessor 사용)

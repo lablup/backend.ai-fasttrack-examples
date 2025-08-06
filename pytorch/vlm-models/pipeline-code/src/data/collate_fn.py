@@ -562,21 +562,22 @@ class VLMDataCollator:
             
             # 1. 비디오 처리 (video_data 플래그가 활성화된 경우)
             if process_video:
+                print(f"📹 Processed video with {len(video_frames)} frames")
                 video_col = self.dataset_columns.get('video_column', 'video')
                 if video_col in example and example[video_col] is not None:
                     video_frames = self._process_video(example[video_col])
                     if video_frames:
                         processed_visuals.extend(video_frames)
-                        print(f"📹 Processed video with {len(video_frames)} frames")
+
             
             # 2. 이미지 처리 (image_data 플래그가 활성화된 경우)
             if process_image and not processed_visuals:  # 비디오가 처리되지 않은 경우에만
+                print(f"🖼️ Processed single image")
                 image_col = self.dataset_columns.get('image_column', 'image')
                 if image_col in example and example[image_col] is not None:
                     processed_image = self._process_image(example[image_col])
                     if processed_image is not None:
                         processed_visuals.append(processed_image)
-                        print(f"🖼️ Processed single image")
             
             # 프로세서에 맞는 형태로 래핑
             if processed_visuals:
