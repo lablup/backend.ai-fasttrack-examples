@@ -11,7 +11,7 @@ save_steps: 0.1
 logging_strategy: "steps"
 eval_strategy: "steps"
 save_total_limit: 2
-dataset_text_field: "text"
+# dataset_text_field: "text"  # VLM에서는 사용자 정의 data_collator 사용으로 불필요
 load_best_model_at_end: true
 metric_for_best_model: "eval_loss" # 또는 사용하는 평가 메트릭
 greater_is_better: false # loss의 경우 false, accuracy 등은 true

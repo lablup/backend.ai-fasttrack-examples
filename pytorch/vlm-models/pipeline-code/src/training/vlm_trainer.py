@@ -60,6 +60,7 @@ class VLMTrainer:
                 processor=self.processor,
                 config_path=vlm_collator_config
             )
+
             print("✅ VLM data collator created successfully")
         else:
             print("❌ Cannot create VLM data collator: processor not available")
@@ -126,7 +127,7 @@ class VLMTrainer:
                 bias="none"
             )
         
-        # SFT 트레이너 생성 (VLM processor 사용)
+        # SFT 트레이너 생성 (VLM tokenizer 사용)
         trainer = SFTTrainer(
             model=self.model,  # self. 직접 사용
             args=train_config,

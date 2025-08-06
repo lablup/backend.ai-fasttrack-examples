@@ -279,20 +279,54 @@ def main():
                 batch_data.append(example)
                 
                 # 참조 답변 추출 (데이터셋 구조에 따라 조정)
+                # collator 설정에서 answer_column 정보 가져오기
                 answer_col = vlm_collator.dataset_columns.get('answer_column', 'answer')
-                if answer_col in example and example[answer_col]:
-                    batch_references.append(str(example[answer_col]).strip())
-                else:
+                
+                # 첫 번째 배치에서 데이터 구조 로깅
+                if i == 0 and j == i:
+                    print(f"📋 Dataset structure debugging:")
+                    print(f"   Available columns: {list(example.keys())}")
+                    print(f"   Expected answer column: '{answer_col}'")
+                    print(f"   Sample data preview: {str(example)[:200]}...")
+                
+                ref_extracted = False
+                if answer_col in example and example[answer_col] is not None:
+                    answer_value = example[answer_col]
+                    if isinstance(answer_value, (list, tuple)) and len(answer_value) > 0:
+                        # 리스트 형태의 답변인 경우 첫 번째 항목 사용
+                        batch_references.append(str(answer_value[0]).strip())
+                        ref_extracted = True
+                    elif isinstance(answer_value, str) and answer_value.strip():
+                        # 문자열 형태의 답변
+                        batch_references.append(answer_value.strip())
+                        ref_extracted = True
+                    
+                if not ref_extracted:
                     # fallback: 다른 가능한 컬럼명들 시도
-                    possible_answer_cols = ['answer', 'text', 'label', 'response', 'target']
-                    ref_found = False
+                    possible_answer_cols = ['answer', 'answers', 'text', 'label', 'response', 'target', 'ground_truth']
                     for col in possible_answer_cols:
-                        if col in example and example[col]:
-                            batch_references.append(str(example[col]).strip())
-                            ref_found = True
-                            break
-                    if not ref_found:
-                        batch_references.append("[NO_REFERENCE]")
+                        if col in example and example[col] is not None:
+                            col_value = example[col]
+                            if isinstance(col_value, (list, tuple)) and len(col_value) > 0:
+                                batch_references.append(str(col_value[0]).strip())
+                                ref_extracted = True
+                                if i == 0 and j == i:
+                                    print(f"✅ Using '{col}' as answer column (list format)")
+                                break
+                            elif isinstance(col_value, str) and col_value.strip():
+                                batch_references.append(col_value.strip())
+                                ref_extracted = True
+                                if i == 0 and j == i:
+                                    print(f"✅ Using '{col}' as answer column (string format)")
+                                break
+                    
+                if not ref_extracted:
+                    if i == 0 and j == i:
+                        print(f"⚠️ No valid answer found in example {j}")
+                        print(f"   Available columns: {list(example.keys())}")
+                        for key, value in example.items():
+                            print(f"   {key}: {type(value)} = {str(value)[:100]}...")
+                    batch_references.append("[NO_REFERENCE]")
             
             if not batch_data:
                 continue
@@ -302,12 +336,19 @@ def main():
             vlm_collator.text_processing['add_generation_prompt'] = True  # evaluation용 prompt 추가
             
             try:
-                # collator를 통해 배치 전처리
+                # collator를 통해 배치 전처리 - evaluation용이므로 is_training=False
                 processed_batch = vlm_collator(batch_data, is_training=False)
                 
-                # 모델 추론
+                # 첫 번째 배치에서 처리된 결과 확인
+                if i == 0:
+                    print(f"🔍 Processed batch keys: {list(processed_batch.keys())}")
+                    print(f"🔍 Input IDs shape: {processed_batch['input_ids'].shape}")
+                    if 'pixel_values' in processed_batch:
+                        print(f"🔍 Pixel values shape: {processed_batch['pixel_values'].shape}")
+                
+                # 모델 추론용 입력 준비 (labels와 text 제외)
                 inputs = {k: v.to(model.device) if isinstance(v, torch.Tensor) else v 
-                         for k, v in processed_batch.items() if k != 'labels'}
+                         for k, v in processed_batch.items() if k not in ['labels']}
                 
                 with torch.no_grad():
                     generated_ids = model.generate(**inputs, **generation_config)
@@ -357,6 +398,11 @@ def main():
     # 데이터 유효성 검증
     if not all_predictions or not all_references:
         print("❌ No valid predictions or references found. Evaluation cannot proceed.")
+        print(f"📊 Predictions count: {len(all_predictions)}")
+        print(f"📊 References count: {len(all_references)}")
+        if all_references:
+            no_ref_count = sum(1 for ref in all_references if ref == "[NO_REFERENCE]")
+            print(f"📊 No reference entries: {no_ref_count}/{len(all_references)}")
         return
     
     if len(all_predictions) != len(all_references):
@@ -713,7 +759,6 @@ def main():
     
     print("\nClearing GPU memory...")
     del model
-    del pipe
     torch.cuda.empty_cache()
     print("GPU memory cleared.")
 

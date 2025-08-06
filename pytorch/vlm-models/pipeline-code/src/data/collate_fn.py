@@ -489,7 +489,8 @@ class VLMDataCollator:
         
         # 데이터 추출
         question = example.get(question_col, '')
-        answer = example.get(answer_col, '') if is_training else ''
+        # evaluation 시에도 answer 정보는 유지 (참조용)
+        answer = example.get(answer_col, '')
         
         # 시스템 프롬프트
         system_prompt = self.message_format.get('system_prompt', 'Answer briefly.')
@@ -498,6 +499,7 @@ class VLMDataCollator:
         if is_training:
             messages_template = self.message_format.get('training_messages', [])
         else:
+            # evaluation용 - answer는 포함하지 않지만 question까지만 처리
             messages_template = self.message_format.get('evaluation_messages', [])
         
         # 템플릿에 데이터 채우기
@@ -510,11 +512,20 @@ class VLMDataCollator:
             
             for content_item in msg_template['content']:
                 if content_item['type'] == 'text':
-                    text = content_item['text'].format(
-                        system_prompt=system_prompt,
-                        question=question,
-                        answer=answer
-                    )
+                    # evaluation 모드에서는 answer를 포함하지 않는 템플릿 사용
+                    if is_training:
+                        text = content_item['text'].format(
+                            system_prompt=system_prompt,
+                            question=question,
+                            answer=answer
+                        )
+                    else:
+                        # evaluation에서는 answer 부분을 비워두거나 질문까지만 포함
+                        text = content_item['text'].format(
+                            system_prompt=system_prompt,
+                            question=question,
+                            answer=""  # evaluation 시에는 답변 부분을 비움
+                        )
                     message['content'].append({
                         'type': 'text',
                         'text': text
@@ -537,10 +548,13 @@ class VLMDataCollator:
         
         Args:
             examples: 배치 데이터 리스트
+            is_training: 학습 모드 여부 (True: 학습, False: 평가)
             
         Returns:
             Dict[str, torch.Tensor]: 모델 입력용 텐서 딕셔너리
         """
+        print(f"🔧 VLMDataCollator called with is_training={is_training}, batch_size={len(examples)}")
+        
         texts = []
         visual_data = []  # 이미지 또는 비디오 프레임을 담을 리스트
         
