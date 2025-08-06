@@ -255,7 +255,6 @@ def main():
     generation_config = {
         "max_new_tokens": 256,
         "do_sample": False,  # deterministic generation for evaluation
-        "temperature": 0.0,
     }
     
     # pad_token_id와 eos_token_id 설정
@@ -304,7 +303,7 @@ def main():
             
             try:
                 # collator를 통해 배치 전처리
-                processed_batch = vlm_collator(batch_data)
+                processed_batch = vlm_collator(batch_data, is_training=False)
                 
                 # 모델 추론
                 inputs = {k: v.to(model.device) if isinstance(v, torch.Tensor) else v 

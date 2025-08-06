@@ -531,7 +531,7 @@ class VLMDataCollator:
         
         return messages
     
-    def __call__(self, examples: List[Dict[str, Any]]) -> Dict[str, torch.Tensor]:
+    def __call__(self, examples: List[Dict[str, Any]], is_training: bool = True) -> Dict[str, torch.Tensor]:
         """
         배치 데이터를 처리하는 메인 함수 - 플래그 기반으로 이미지와 비디오 처리를 제어
         
@@ -584,7 +584,7 @@ class VLMDataCollator:
                 visual_data.append([])  # 빈 리스트로 처리
             
             # 3. 메시지 형식으로 변환 (학습용)
-            messages = self._format_messages(example, is_training=True)
+            messages = self._format_messages(example, is_training=is_training)
             
             # 4. 채팅 템플릿 적용
             try:
@@ -624,27 +624,28 @@ class VLMDataCollator:
                 truncation=self.text_processing.get('truncation', True),
                 max_length=self.text_processing.get('max_length', 2048)
             )
-        
-        # 6. 레이블 생성 및 마스킹 (일반화된 버전)
-        labels = batch["input_ids"].clone()
-        ignore_index = self.label_masking.get('ignore_index', -100)
-        
-        # 미리 계산된 ignore_in_loss_ids 집합을 사용하여 한 번에 마스킹
-        if self.ignore_in_loss_ids:
-            # boolean 마스크 생성: labels 텐서의 각 요소가 무시할 ID 집합에 속하는지 확인
-            mask = torch.isin(labels, torch.tensor(list(self.ignore_in_loss_ids), device=labels.device))
-            # 마스크가 True인 위치의 값을 ignore_index로 변경
-            labels[mask] = ignore_index
-            print(f"🔧 Masked {torch.sum(mask).item()} tokens in loss calculation")
-        
-        # (선택적) 추가 마스킹 로직
-        # 프롬프트 부분 마스킹이 필요한 경우 여기에 추가할 수 있습니다.
-        # 예: assistant 응답 시작 전까지의 모든 토큰을 마스킹
-        if self.label_masking.get('mask_input_tokens', False):
-            # 이 부분은 모델별 chat template에 따라 다르게 구현될 수 있습니다.
-            print("💡 Input token masking is enabled but not implemented yet.")
-        
-        batch["labels"] = labels
+        if is_training:
+            print("🔄 Training mode detected, applying label masking...")
+            # 6. 레이블 생성 및 마스킹 (일반화된 버전)
+            labels = batch["input_ids"].clone()
+            ignore_index = self.label_masking.get('ignore_index', -100)
+            
+            # 미리 계산된 ignore_in_loss_ids 집합을 사용하여 한 번에 마스킹
+            if self.ignore_in_loss_ids:
+                # boolean 마스크 생성: labels 텐서의 각 요소가 무시할 ID 집합에 속하는지 확인
+                mask = torch.isin(labels, torch.tensor(list(self.ignore_in_loss_ids), device=labels.device))
+                # 마스크가 True인 위치의 값을 ignore_index로 변경
+                labels[mask] = ignore_index
+                print(f"🔧 Masked {torch.sum(mask).item()} tokens in loss calculation")
+            
+            # (선택적) 추가 마스킹 로직
+            # 프롬프트 부분 마스킹이 필요한 경우 여기에 추가할 수 있습니다.
+            # 예: assistant 응답 시작 전까지의 모든 토큰을 마스킹
+            if self.label_masking.get('mask_input_tokens', False):
+                # 이 부분은 모델별 chat template에 따라 다르게 구현될 수 있습니다.
+                print("💡 Input token masking is enabled but not implemented yet.")
+            
+            batch["labels"] = labels
         
         return batch
     
