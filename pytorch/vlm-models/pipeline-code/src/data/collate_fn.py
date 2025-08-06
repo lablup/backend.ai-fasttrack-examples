@@ -105,20 +105,50 @@ class VLMDataCollator:
         print("  🔧 Processing all special tokens from special_tokens_map...")
         
         special_tokens_map = getattr(tokenizer, 'special_tokens_map', {})
-        
+        print(f"special_tokens_map length : {len(special_tokens_map)}")
+
         for token_attr, token_str in special_tokens_map.items():
-            # 토큰 ID 가져오기 (getattr로 통일)
-            token_id = getattr(tokenizer, f'{token_attr}_id', None)
-            
-            if token_id is not None:
-                # 토큰 이름 정리 (예: 'pad_token' -> 'pad')
-                clean_name = token_attr.replace('_token', '')
-                self.special_token_ids[clean_name] = token_id
+            try:
+                # 토큰 ID 가져오기 (getattr로 통일)
+                token_id = getattr(tokenizer, f'{token_attr}_id', None)
                 
-                # 모든 특수 토큰은 기본적으로 손실 계산에서 제외
-                self.ignore_in_loss_ids.add(token_id)
-                
-                print(f"    ✅ {clean_name}: '{token_str}' -> ID: {token_id}")
+                # token_id가 리스트인 경우 처리 (실제 문제 원인)
+                if isinstance(token_id, list):
+                    if len(token_id) > 0:
+                        # 리스트인 경우 모든 ID를 처리
+                        print(f"    📝 Token ID '{token_attr}_id' is a list: {token_id}, adding all IDs")
+                        for idx, single_id in enumerate(token_id):
+                            # 각 ID에 대해 개별 처리
+                            clean_name = token_attr.replace('_token', '')
+                            if len(token_id) > 1:
+                                # 여러 ID가 있는 경우 인덱스 추가
+                                clean_name = f"{clean_name}_{idx}"
+                            
+                            self.special_token_ids[clean_name] = single_id
+                            self.ignore_in_loss_ids.add(single_id)
+                            print(f"    ✅ {clean_name}: '{token_str}' -> ID: {single_id}")
+                    else:
+                        print(f"    ⚠️ Token ID '{token_attr}_id' is an empty list, skipping")
+                        continue
+                else:
+                    # 단일 ID인 경우
+                    if token_id is not None:
+                        # 토큰 이름 정리 (예: 'pad_token' -> 'pad')
+                        clean_name = token_attr.replace('_token', '')
+                        self.special_token_ids[clean_name] = token_id
+                        
+                        # 모든 특수 토큰은 기본적으로 손실 계산에서 제외
+                        self.ignore_in_loss_ids.add(token_id)
+                        
+                        print(f"    ✅ {clean_name}: '{token_str}' -> ID: {token_id}")
+                    else:
+                        print(f"    ⚠️ No ID found for token '{token_attr}': '{token_str}'")
+                    
+            except Exception as e:
+                print(f"    ❌ Error processing token '{token_attr}': {e}")
+                print(f"    🔍 Token value type: {type(token_str)}, Token ID type: {type(token_id)}")
+                print(f"    🔍 Token attr: '{token_attr}', Token str: {token_str}, Token ID: {token_id}")
+                continue
 
     def _process_additional_tokens(self, tokenizer):
         """additional_special_tokens를 처리합니다."""
