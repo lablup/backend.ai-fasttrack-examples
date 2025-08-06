@@ -71,12 +71,28 @@ batch_processing:
     return_tensors: "pt" # 반환할 텐서 타입
     padding_strategy: "longest" # 패딩 전략: longest, max_length
 
-# 특수 토큰 설정 (모델별로 다를 수 있음)
+# 특수 토큰 설정 (자동 감지 사용, 수동 설정 불필요)
 special_tokens:
-    image_token: "<image>" # 이미지 토큰
-    video_token: "<video>" # 비디오 토큰 (필요시)
-    pad_token: null # 패드 토큰 (auto-detect)
-    eos_token: null # EOS 토큰 (auto-detect)
+    # ✨ 새로운 자동 감지 시스템 ✨
+    # 이제 tokenizer.special_tokens_map과 additional_special_tokens에서
+    # 모든 특수 토큰을 자동으로 감지하므로 수동 설정이 불필요합니다!
+
+    # 🔧 기본 동작:
+    # - 패드, EOS, BOS 등 core 토큰들 자동 감지
+    # - 이미지, 비디오 등 VLM 관련 토큰들 자동 감지
+    # - apply_chat_template과 호환성 자동 검증
+    # - 손실 계산 시 자동 마스킹 적용
+
+    # 📝 Manual override (선택사항 - 고급 사용자용)
+    # 자동 감지가 실패하는 경우에만 아래 섹션을 활성화하세요
+    manual_tokens:
+        enabled: false # true로 변경시 수동 토큰 설정 활성화
+        tokens:
+            []
+            # 예시 (필요시에만 사용):
+            # - name: "custom_image_token"
+            #   token: "<custom_image>"
+            #   ignore_in_loss: true
 
 # 비디오 처리 설정
 video_processing:

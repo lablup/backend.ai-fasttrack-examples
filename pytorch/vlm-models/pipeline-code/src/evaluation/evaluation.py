@@ -9,6 +9,7 @@ from pathlib import Path
 from datasets import load_from_disk  # 'load_dataset' 대신 'load_from_disk'를 사용
 from transformers import (
     AutoModelForCausalLM,
+    AutoModelForVision2Seq,
     AutoProcessor,
     pipeline,
 )
@@ -117,7 +118,15 @@ def parse_args():
     return parser.parse_args()
 
 def load_model_for_evaluation(model_name_or_path, use_finetuned=False):
-    """베이스 모델 또는 파인튜닝된 모델을 로드하는 함수 (AutoModelForCausalLM 사용)"""
+    """베이스 모델 또는 파인튜닝된 모델을 로드하는 함수 (VLM 지원)"""
+    
+    # VLM ModelLoader를 사용하여 모델 로드
+    print(f"Loading VLM model for evaluation: {model_name_or_path}")
+    model_loader = ModelLoader(model_name_or_path)
+    
+    if not model_loader.model or not model_loader.processor:
+        print(f"❌ Failed to load VLM model: {model_name_or_path}")
+        return None, None
     
     if use_finetuned:
         # 1. 먼저 배포용 모델이 있는지 확인
@@ -125,64 +134,46 @@ def load_model_for_evaluation(model_name_or_path, use_finetuned=False):
         if deployment_model_path.exists() and (deployment_model_path / "config.json").exists():
             print(f"Found deployment-ready fine-tuned model at: {deployment_model_path}")
             try:
-                model = AutoModelForCausalLM.from_pretrained(
-                    str(deployment_model_path),
-                        device_map="auto", 
-                        torch_dtype=torch.float16,
-                        local_files_only=True  # 로컬 파일만 사용
-                    )
-                print(f"✅ Successfully loaded deployment-ready fine-tuned model from {deployment_model_path}")
-                return model
+                # VLM 모델을 로드하고 PEFT 어댑터는 별도 처리
+                finetuned_model_loader = ModelLoader(str(deployment_model_path))
+                if finetuned_model_loader.model:
+                    return finetuned_model_loader.model, finetuned_model_loader.processor
+                else:
+                    print("⚠️ Failed to load deployment model, trying PEFT adapter approach...")
             except Exception as e:
-                print(f"⚠️ Failed to load deployment model: {e}")
-                print("Falling back to adapter-based loading...")
+                print(f"⚠️ Error loading deployment model: {e}")
+                print("🔄 Falling back to PEFT adapter approach...")
         
-        # 2. 병합된 모델이 없으면 어댑터 방식으로 로딩
-        adapter_path = settings.save_model_path / model_name_or_path
+        # 2. PEFT 어댑터 접근법
+        adapter_path = settings.save_model_path
         if adapter_path.exists():
-            print(f"Loading base model and applying PEFT adapter from: {adapter_path}")
-            
-            # 베이스 모델 로드
-            base_model = AutoModelForCausalLM.from_pretrained(
-                model_name_or_path, 
-                device_map="auto", 
-                torch_dtype=torch.float16, 
-                token=os.getenv('HF_TOKEN')
-            )
-            
-            # PEFT 어댑터 적용
+            print(f"Loading PEFT adapter from: {adapter_path}")
             try:
-                model = PeftModel.from_pretrained(
-                    base_model, 
-                    str(adapter_path), 
-                    device_map='auto', 
-                    torch_dtype=torch.float16
-                )
-                print(f"✅ Successfully loaded model with PEFT adapter from {adapter_path}")
-                return model
+                # 베이스 VLM 모델 로드
+                base_model = model_loader.model
+                
+                # PEFT 어댑터 적용
+                from peft import PeftModel
+                model = PeftModel.from_pretrained(base_model, str(adapter_path))
+                print("✅ Successfully loaded fine-tuned VLM model with PEFT adapter")
+                return model, model_loader.processor
+                
             except Exception as e:
-                print(f"❌ Failed to load PEFT adapter: {e}")
-                print("Using base model instead")
-                return base_model
+                print(f"❌ Error loading PEFT adapter: {e}")
+                print("🔄 Falling back to base model")
+                return model_loader.model, model_loader.processor
         else:
-            print(f"❌ No fine-tuned model found at {adapter_path}")
-            print("Using base model instead")
+            print(f"⚠️ PEFT adapter not found at: {adapter_path}")
+            print("🔄 Using base model for evaluation")
+            return model_loader.model, model_loader.processor
     
-    # 베이스 모델 로딩
-    print(f"Loading base model: {model_name_or_path}")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name_or_path, 
-        device_map="auto", 
-        torch_dtype=torch.float16, 
-        token=os.getenv('HF_TOKEN')
-    )
-    
-    print(f"✅ Successfully loaded base model: {model_name_or_path}")
-    return model
+    # 베이스 모델 반환
+    print("✅ Using base VLM model for evaluation")
+    return model_loader.model, model_loader.processor
 
 def main():
     args = parse_args()
-    print("--- Starting Evaluation Script on Local Dataset ---")
+    print("--- Starting VLM Evaluation Script on Local Dataset ---")
     
     # 1. 평가 지표 로드 - 한국어 텍스트 평가에 적합한 메트릭 사용
     print("Loading evaluation metrics...")
@@ -205,24 +196,15 @@ def main():
         print(f"⚠️ Failed to load Perplexity metric: {e}")
         perplexity_metric = None
     
-    # 2. 모델 로더를 통해 tokenizer 로드
-    processor_path = args.model_name_or_path
-    if args.use_adapter and settings.deployment_model_path.exists() and (settings.deployment_model_path / "tokenizer_config.json").exists():
-        processor_path = str(settings.deployment_model_path)
-        print(f"Loading tokenizer from fine-tuned model: {processor_path}")
-    else:
-        print(f"Loading tokenizer from base model: {processor_path}")
+    # 2. VLM 모델과 프로세서 로드
+    print(f"Loading VLM model and processor: {args.model_name_or_path}")
+    model, processor = load_model_for_evaluation(args.model_name_or_path, use_finetuned=args.use_adapter)
     
-    # ModelLoader 사용 (모델은 따로 로드할 예정이므로 tokenizer만 필요)
-    model_loader = ModelLoader(processor_path)
-    
-    if not model_loader.tokenizer:
-        print(f"❌ Failed to load tokenizer from {processor_path}")
+    if model is None or processor is None:
+        print("❌ Failed to load VLM model or processor")
         return
     
-    tokenizer = model_loader.tokenizer
-    
-    # 데이터셋 경로 설정 - 파이프라인 환경에서는 이전 task의 output을 input1에서 읽음
+    # 3. 데이터셋 경로 설정 - 파이프라인 환경에서는 이전 task의 output을 input1에서 읽음
     if settings.is_pipeline_env:
         readonly_dataset_path = settings.pipeline_input_path
         # 읽기 전용 경로를 쓰기 가능한 임시 경로로 복사
@@ -244,23 +226,12 @@ def main():
         print(f"Failed to load dataset from disk: {e}")
         return
 
-    # 3. 평가할 모델 로드 - 병합된 모델 우선 사용
-    model = load_model_for_evaluation(args.model_name_or_path, use_finetuned=args.use_adapter)
-    # 4. 파이프라인 설정
-    pipe = pipeline("text-generation",
-                    model=model,
-                    tokenizer=tokenizer,
-                    torch_dtype=torch.float16, # 데이터 타입을 명시적으로 지정
-                    max_new_tokens=256,
-                    device_map="auto"
-                    )
-
-    # 5. 평가 실행: 전처리된 데이터 직접 사용
+    # 4. 평가 실행: 전처리된 데이터 직접 사용
     if args.max_samples:
         test_dataset = test_dataset.select(range(args.max_samples))
     
     # 배치 크기 설정 (GPU 메모리에 따라 조절)
-    batch_size = int(os.getenv('EVAL_BATCH_SIZE', 8))
+    batch_size = int(os.getenv('EVAL_BATCH_SIZE', 4))  # VLM은 메모리 사용량이 많아 배치 크기를 줄임
     
     all_predictions = []
     all_references = []
@@ -268,52 +239,79 @@ def main():
     
     print(f"Evaluating on {len(test_dataset)} samples with batch size {batch_size}...")
     
+    # VLM 모델 평가를 위한 생성 설정
+    generation_config = {
+        "max_new_tokens": 256,
+        "do_sample": False,  # deterministic generation for evaluation
+        "temperature": 0.0,
+        "pad_token_id": processor.tokenizer.pad_token_id,
+    }
+    
+    # eos_token 처리 - VLM 모델에서는 processor.tokenizer를 통해 접근
+    try:
+        if hasattr(processor.tokenizer, 'eos_token_id') and processor.tokenizer.eos_token_id is not None:
+            generation_config["eos_token_id"] = processor.tokenizer.eos_token_id
+    except Exception as e:
+        print(f"⚠️ Could not set eos_token_id: {e}")
+    
     # tqdm으로 전체 데이터셋에 대한 진행률을 표시합니다.
     for i in tqdm(range(0, len(test_dataset), batch_size)):
         # 1. 현재 배치에 해당하는 데이터(딕셔너리)를 가져옵니다.
         batch = test_dataset[i : i + batch_size]
         
-        # 2. 전처리된 데이터에서 prompt와 reference 직접 추출
-        batch_prompts = batch.get("prompt", [])
+        # 2. 전처리된 데이터에서 conversation, images, reference 직접 추출
+        batch_conversations = batch.get("conversation", [])
+        batch_images = batch.get("images", [])  
         batch_references = batch.get("reference", [])
         
         # 빈 값 필터링 및 검증
-        valid_indices = []
-        filtered_prompts = []
+        filtered_conversations = []
+        filtered_images = []
         filtered_references = []
         
-        for idx, (prompt, ref) in enumerate(zip(batch_prompts, batch_references)):
-            if prompt and ref and len(str(prompt).strip()) > 0 and len(str(ref).strip()) > 0:
-                valid_indices.append(idx)
-                filtered_prompts.append(str(prompt).strip())
+        for conv, img, ref in zip(batch_conversations, batch_images, batch_references):
+            if conv and img and ref and len(str(ref).strip()) > 0:
+                filtered_conversations.append(conv)
+                filtered_images.append(img)
                 filtered_references.append(str(ref).strip())
         
-        if not filtered_prompts:
-            print(f"⚠️ Skipping batch {i//batch_size + 1}: No valid prompt-reference pairs")
+        if not filtered_conversations:
+            print(f"⚠️ Skipping batch {i//batch_size + 1}: No valid conversation-image-reference triplets")
             continue
 
-        # 3. 파이프라인으로 현재 배치를 한 번에 처리
-        try:
-            generated_outputs = pipe(filtered_prompts, batch_size=len(filtered_prompts), eos_token_id=tokenizer.eos_token_id)
-        except Exception as e:
-            print(f"⚠️ Generation failed for batch {i//batch_size + 1}: {e}")
-            continue
-        
-        # 4. 생성된 결과에서 예측 텍스트만 추출
+        # 3. VLM 모델로 배치 처리
         batch_predictions = []
-        for out, prompt in zip(generated_outputs, filtered_prompts):
+        for conv, img in zip(filtered_conversations, filtered_images):
             try:
-                generated_text = out[0]['generated_text']
-                # 프롬프트 제거하여 순수 생성 텍스트만 추출
-                prediction = generated_text.replace(prompt, '').strip()
-                batch_predictions.append(prediction if prediction else "[EMPTY_GENERATION]")
+                # VLM 입력 준비
+                inputs = processor(
+                    text=conv,
+                    images=img,
+                    return_tensors="pt"
+                ).to(model.device)
+                
+                # VLM 생성
+                with torch.no_grad():
+                    generated_ids = model.generate(**inputs, **generation_config)
+                
+                # 입력 토큰 제거하고 생성된 텍스트만 디코딩
+                input_token_len = inputs['input_ids'].shape[1]
+                generated_tokens = generated_ids[:, input_token_len:]
+                
+                generated_text = processor.batch_decode(
+                    generated_tokens, 
+                    skip_special_tokens=True
+                )[0].strip()
+                
+                batch_predictions.append(generated_text if generated_text else "[EMPTY_GENERATION]")
+                
             except Exception as e:
-                print(f"⚠️ Failed to extract prediction: {e}")
-                batch_predictions.append("[EXTRACTION_ERROR]")
+                print(f"⚠️ VLM generation failed for sample: {e}")
+                batch_predictions.append("[GENERATION_ERROR]")
         
         all_predictions.extend(batch_predictions)
         all_references.extend(filtered_references)
-        all_prompts.extend(filtered_prompts)
+        all_prompts.extend([str(conv) for conv in filtered_conversations])
 
     # 5. 정량적 성능 지표 계산 및 결과 저장 (개선된 평가 메트릭)
     print("\nCalculating quantitative metrics...")

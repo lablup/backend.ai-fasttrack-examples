@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 import yaml
 import importlib
-from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoModelForVision2Seq, AutoProcessor, AutoTokenizer
 
 def parse_args():
     parser = argparse.ArgumentParser(description="VLM Model Loader")
@@ -35,9 +35,9 @@ def load_vlm_config(config_path: str) -> dict:
 def get_model_classes(model_id: str, vlm_config: dict):
     """모델 ID를 기반으로 적절한 모델 클래스들을 반환합니다."""
     if not vlm_config:
-        # 기본 Auto 클래스 사용
+        # 기본 VLM Auto 클래스 사용
         return {
-            'model_class': AutoModelForCausalLM,
+            'model_class': AutoModelForVision2Seq,
             'processor_class': AutoProcessor,
             'loading_params': {},
             'processor_params': {}
@@ -61,8 +61,16 @@ def get_model_classes(model_id: str, vlm_config: dict):
         import_path = model_config.get('import_path', 'transformers')
         module = importlib.import_module(import_path)
         
+        # model_class는 필수, processor_class는 선택사항 (기본값: AutoProcessor)
         model_class = getattr(module, model_config['model_class'])
-        processor_class = getattr(module, model_config['processor_class'])
+        
+        # processor_class가 지정되어 있는지 확인
+        if 'processor_class' in model_config:
+            processor_class = getattr(module, model_config['processor_class'])
+            print(f"📦 Using specific processor class: {model_config['processor_class']}")
+        else:
+            processor_class = AutoProcessor
+            print(f"📦 Using default AutoProcessor (no specific processor_class configured)")
         
         return {
             'model_class': model_class,
@@ -73,9 +81,9 @@ def get_model_classes(model_id: str, vlm_config: dict):
         
     except (ImportError, AttributeError) as e:
         print(f"⚠️ Failed to import classes: {e}")
-        print("🔄 Falling back to Auto classes")
+        print("🔄 Falling back to VLM Auto classes")
         return {
-            'model_class': AutoModelForCausalLM,
+            'model_class': AutoModelForVision2Seq,
             'processor_class': AutoProcessor,
             'loading_params': {},
             'processor_params': {}
@@ -83,10 +91,10 @@ def get_model_classes(model_id: str, vlm_config: dict):
 
 def load_model(model_id, model_class=None, loading_params=None):
     """
-    VLM 모델을 로드합니다. 설정된 클래스 또는 AutoModelForCausalLM을 사용합니다.
+    VLM 모델을 로드합니다. 설정된 클래스 또는 AutoModelForVision2Seq을 사용합니다.
     """
     if model_class is None:
-        model_class = AutoModelForCausalLM
+        model_class = AutoModelForVision2Seq
     
     if loading_params is None:
         loading_params = {}

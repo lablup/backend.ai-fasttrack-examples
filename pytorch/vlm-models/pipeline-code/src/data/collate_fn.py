@@ -6,6 +6,7 @@ VLM 모델을 위한 사용자 정의 데이터 콜레이터
 """
 
 import os
+import re
 import yaml
 import torch
 from pathlib import Path
@@ -74,43 +75,188 @@ class VLMDataCollator:
         self._setup_special_tokens()
     
     def _setup_special_tokens(self):
-        """특수 토큰 ID들을 미리 설정합니다."""
+        """토크나이저의 모든 특수 토큰을 자동으로 감지하고 설정합니다."""
+        print("🔍 Auto-detecting special tokens from tokenizer...")
+        self.special_token_ids = {}
+        self.ignore_in_loss_ids = set()  # 손실 계산 시 무시할 토큰 ID 집합
+
+        # tokenizer 객체 가져오기 (getattr로 통일)
+        tokenizer = getattr(self.processor, 'tokenizer', self.processor)
+        print(f"📊 Tokenizer type: {type(tokenizer).__name__}")
+        
+        # 1. special_tokens_map의 모든 토큰 처리
+        self._process_all_special_tokens(tokenizer)
+        
+        # 2. additional_special_tokens 처리
+        self._process_additional_tokens(tokenizer)
+        
+        # 3. apply_chat_template 호환성 검증
+        self._verify_chat_template_compatibility(tokenizer)
+        
+        # 4. Manual config 처리 (고급 사용자용 override)
+        self._process_manual_config_if_enabled(tokenizer)
+        
+        print(f"✅ Auto-detection complete.")
+        print(f"   📋 Total special tokens found: {len(self.special_token_ids)}")
+        print(f"   🚫 Tokens to ignore in loss: {len(self.ignore_in_loss_ids)}")
+
+    def _process_all_special_tokens(self, tokenizer):
+        """special_tokens_map의 모든 특수 토큰을 처리합니다."""
+        print("  🔧 Processing all special tokens from special_tokens_map...")
+        
+        special_tokens_map = getattr(tokenizer, 'special_tokens_map', {})
+        
+        for token_attr, token_str in special_tokens_map.items():
+            # 토큰 ID 가져오기 (getattr로 통일)
+            token_id = getattr(tokenizer, f'{token_attr}_id', None)
+            
+            if token_id is not None:
+                # 토큰 이름 정리 (예: 'pad_token' -> 'pad')
+                clean_name = token_attr.replace('_token', '')
+                self.special_token_ids[clean_name] = token_id
+                
+                # 모든 특수 토큰은 기본적으로 손실 계산에서 제외
+                self.ignore_in_loss_ids.add(token_id)
+                
+                print(f"    ✅ {clean_name}: '{token_str}' -> ID: {token_id}")
+
+    def _process_additional_tokens(self, tokenizer):
+        """additional_special_tokens를 처리합니다."""
+        print("  🎯 Processing additional special tokens...")
+        
+        additional_tokens = getattr(tokenizer, 'additional_special_tokens', [])
+        additional_token_ids = getattr(tokenizer, 'additional_special_tokens_ids', [])
+        
+        if additional_tokens:
+            print(f"    📝 Found {len(additional_tokens)} additional special tokens")
+            
+            for i, token_str in enumerate(additional_tokens):
+                if i < len(additional_token_ids):
+                    token_id = additional_token_ids[i]
+                    
+                    # 간단한 토큰 이름 생성
+                    clean_token = token_str.replace('<', '').replace('>', '').replace('|', '_')
+                    token_name = f"special_{clean_token}"
+                    
+                    self.special_token_ids[token_name] = token_id
+                    
+                    # 모든 추가 특수 토큰도 손실 계산에서 제외
+                    self.ignore_in_loss_ids.add(token_id)
+                    
+                    print(f"    ✅ {token_name}: '{token_str}' -> ID: {token_id}")
+
+    def _verify_chat_template_compatibility(self, tokenizer):
+        """apply_chat_template과의 호환성을 검증합니다."""
+        print("  🔍 Verifying chat template compatibility...")
+        
+        # 테스트 메시지 생성
+        test_messages = [
+            {"role": "user", "content": [
+                {"type": "text", "text": "Test message"},
+                {"type": "image"},
+                {"type": "text", "text": "What do you see?"}
+            ]},
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "I see an image."}
+            ]}
+        ]
+        
         try:
-            # 이미지 토큰 ID 찾기
-            image_token = self.special_tokens_config.get('image_token', '<image>')
+            test_text = self.processor.apply_chat_template(
+                test_messages, 
+                tokenize=False,
+                add_generation_prompt=False
+            )
             
-            if hasattr(self.processor, 'tokenizer'):
-                tokenizer = self.processor.tokenizer
-            else:
-                tokenizer = self.processor
-            
-            # 이미지 토큰 ID 설정
-            if hasattr(tokenizer, 'additional_special_tokens_ids') and hasattr(tokenizer, 'additional_special_tokens'):
-                try:
-                    token_index = tokenizer.additional_special_tokens.index(image_token)
-                    self.image_token_id = tokenizer.additional_special_tokens_ids[token_index]
-                except (ValueError, IndexError):
-                    print(f"⚠️ Image token '{image_token}' not found in additional_special_tokens")
-                    self.image_token_id = None
-            else:
-                # 일반 토큰으로 인코딩 시도
-                try:
-                    encoded = tokenizer.encode(image_token, add_special_tokens=False)
-                    self.image_token_id = encoded[0] if encoded else None
-                except:
-                    print(f"⚠️ Could not encode image token '{image_token}'")
-                    self.image_token_id = None
-            
-            # 패드 토큰 ID
-            self.pad_token_id = tokenizer.pad_token_id
-            
-            print(f"✅ Special tokens setup - Image: {self.image_token_id}, Pad: {self.pad_token_id}")
-            
+            # 생성된 텍스트에서 특수 토큰 확인
+            self._check_template_tokens(test_text, tokenizer)
+            print("    ✅ Chat template compatibility verified")
+                
         except Exception as e:
-            print(f"⚠️ Error setting up special tokens: {e}")
-            self.image_token_id = None
-            self.pad_token_id = None
-    
+            print(f"    ⚠️ Chat template test failed: {e}")
+
+    def _check_template_tokens(self, template_text, tokenizer):
+        """템플릿 텍스트에 포함된 특수 토큰들을 확인합니다."""
+        print(f"    📄 Template text preview: {template_text[:100]}...")
+        
+        # 템플릿에서 특수 토큰 패턴 찾기
+        special_token_pattern = r'<[^>]+>'
+        found_tokens = re.findall(special_token_pattern, template_text)
+        
+        if found_tokens:
+            print(f"    🎯 Found template tokens: {found_tokens}")
+            
+            # 발견된 토큰들이 우리가 감지한 토큰 목록에 있는지 확인
+            for token in found_tokens:
+                token_id = tokenizer.convert_tokens_to_ids(token)
+                if token_id != tokenizer.unk_token_id:
+                    # 새로운 토큰 발견시 추가
+                    token_name = f"template_token_{token.replace('<', '').replace('>', '')}"
+                    if token_id not in self.special_token_ids.values():
+                        self.special_token_ids[token_name] = token_id
+                        self.ignore_in_loss_ids.add(token_id)
+                        print(f"    🆕 Added template token: '{token}' -> ID: {token_id}")
+
+    def _process_manual_config_if_enabled(self, tokenizer):
+        """YAML 설정에서 manual_tokens가 활성화된 경우 처리합니다."""
+        manual_tokens = self.special_tokens_config.get('manual_tokens', {})
+        
+        if not manual_tokens.get('enabled', False):
+            print("  ⏭️ Manual token configuration disabled (using auto-detection only)")
+            return
+        
+        print("  🔧 Processing manual token configuration...")
+        manual_token_list = manual_tokens.get('tokens', [])
+        
+        if not manual_token_list:
+            print("    ⚠️ Manual tokens enabled but no tokens specified")
+            return
+        
+        override_count = 0
+        new_count = 0
+        
+        for token_config in manual_token_list:
+            if not isinstance(token_config, dict):
+                print(f"    ❌ Invalid token config (must be dict): {token_config}")
+                continue
+                
+            token_name = token_config.get('name')
+            token_text = token_config.get('token')
+            ignore_in_loss = token_config.get('ignore_in_loss', True)
+            
+            if not token_name or not token_text:
+                print(f"    ❌ Invalid token config (missing name/token): {token_config}")
+                continue
+            
+            # 토큰 ID 계산
+            token_id = tokenizer.convert_tokens_to_ids(token_text)
+            if token_id == tokenizer.unk_token_id:
+                print(f"    ⚠️ Unknown token '{token_text}' for '{token_name}' - skipping")
+                continue
+            
+            # 기존 토큰 override 또는 새 토큰 추가
+            if token_name in self.special_token_ids:
+                old_id = self.special_token_ids[token_name]
+                print(f"    🔄 Override '{token_name}': {old_id} -> {token_id}")
+                override_count += 1
+                
+                # 기존 ID 제거
+                if old_id in self.ignore_in_loss_ids:
+                    self.ignore_in_loss_ids.remove(old_id)
+            else:
+                print(f"    ➕ Add manual token '{token_name}': {token_id}")
+                new_count += 1
+            
+            # 새 설정 적용
+            self.special_token_ids[token_name] = token_id
+            if ignore_in_loss:
+                self.ignore_in_loss_ids.add(token_id)
+        
+        if override_count > 0 or new_count > 0:
+            print(f"    ✅ Manual config processed: {override_count} overrides, {new_count} new tokens")
+        else:
+            print("    ℹ️ No valid manual tokens processed")
+
     def _process_image(self, image) -> Optional[Image.Image]:
         """이미지 전처리를 수행합니다. 파일 경로와 PIL Image 모두 지원합니다."""
         if image is None:
@@ -139,9 +285,10 @@ class VLMDataCollator:
         
         # 2. PIL Image가 아닌 경우 변환
         elif not isinstance(image, Image.Image):
-            if hasattr(image, 'convert'):  # PIL-like object
+            convert_method = getattr(image, 'convert', None)
+            if convert_method:  # PIL-like object
                 try:
-                    image = image.convert('RGB')
+                    image = convert_method('RGB')
                 except Exception as e:
                     print(f"⚠️ Error converting PIL-like object: {e}")
                     return None
@@ -449,22 +596,24 @@ class VLMDataCollator:
                 max_length=self.text_processing.get('max_length', 2048)
             )
         
-        # 6. 레이블 생성 및 마스킹
+        # 6. 레이블 생성 및 마스킹 (일반화된 버전)
         labels = batch["input_ids"].clone()
         ignore_index = self.label_masking.get('ignore_index', -100)
         
-        # 패딩 토큰 마스킹
-        if self.label_masking.get('mask_pad_token', True) and self.pad_token_id is not None:
-            labels[labels == self.pad_token_id] = ignore_index
+        # 미리 계산된 ignore_in_loss_ids 집합을 사용하여 한 번에 마스킹
+        if self.ignore_in_loss_ids:
+            # boolean 마스크 생성: labels 텐서의 각 요소가 무시할 ID 집합에 속하는지 확인
+            mask = torch.isin(labels, torch.tensor(list(self.ignore_in_loss_ids), device=labels.device))
+            # 마스크가 True인 위치의 값을 ignore_index로 변경
+            labels[mask] = ignore_index
+            print(f"🔧 Masked {torch.sum(mask).item()} tokens in loss calculation")
         
-        # 이미지/비디오 토큰 마스킹
-        if self.label_masking.get('mask_image_token', True) and self.image_token_id is not None:
-            labels[labels == self.image_token_id] = ignore_index
-        
-        # 비디오 토큰 마스킹 (있는 경우)
-        video_token = self.special_tokens_config.get('video_token', '<video>')
-        if hasattr(self, 'video_token_id') and self.video_token_id is not None:
-            labels[labels == self.video_token_id] = ignore_index
+        # (선택적) 추가 마스킹 로직
+        # 프롬프트 부분 마스킹이 필요한 경우 여기에 추가할 수 있습니다.
+        # 예: assistant 응답 시작 전까지의 모든 토큰을 마스킹
+        if self.label_masking.get('mask_input_tokens', False):
+            # 이 부분은 모델별 chat template에 따라 다르게 구현될 수 있습니다.
+            print("💡 Input token masking is enabled but not implemented yet.")
         
         batch["labels"] = labels
         

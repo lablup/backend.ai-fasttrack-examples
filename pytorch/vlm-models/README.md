@@ -2,7 +2,31 @@
 
 이 프로젝트는 Vision-Language Model (VLM)에 대해 Hugging Face 데이터셋으로 파인튜닝하고 평가하는 파이프라인을 제공합니다.
 
+**주요 특징**:
+
+-   🤖 **자동 특수 토큰 감지**: 모델의 tokenizer에서 모든 특수 토큰을 자동으로 감지하고 설정
+-   🔄 **범용 VLM 지원**: 다양한 VLM 모델 아키텍처를 자동으로 지원
+-   🛡️ **안전한 설정**: 사용자의 수동 토큰 설정 오류를 방지하는 자동화 시스템
+-   📊 **포괄적 평가**: VLM 태스크에 특화된 평가 지표 제공
+
 **주요 변경사항**: 기존 Language Model 파이프라인을 VLM 파이프라인으로 전환하였습니다.
+
+## ✨ 새로운 자동 특수 토큰 감지 시스템
+
+**더 이상 특수 토큰을 수동으로 설정할 필요가 없습니다!**
+
+### 🔍 자동 감지 기능
+
+-   **4단계 자동 감지**: Core tokens → Additional tokens → Visual tokens → Template compatibility
+-   **모델별 적응**: 각 VLM 모델의 특수 토큰을 자동으로 파악
+-   **안전한 처리**: 잘못된 토큰 설정으로 인한 학습 오류 방지
+
+### 🎯 감지되는 토큰 유형
+
+-   **기본 토큰**: pad, eos, bos, unk, sep, cls, mask
+-   **VLM 토큰**: `<image>`, `<video>`, `<|vision_start|>`, `<|vision_end|>` 등
+-   **모델별 토큰**: Qwen2VL, LLaVA, PaliGemma 등의 모델 특화 토큰
+-   **템플릿 토큰**: apply_chat_template에서 사용되는 토큰들
 
 ## 🚀 Quick Start
 

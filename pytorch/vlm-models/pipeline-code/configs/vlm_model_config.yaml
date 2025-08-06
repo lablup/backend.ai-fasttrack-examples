@@ -1,53 +1,58 @@
 # VLM Model Configuration
 # 다양한 VLM 모델에 대한 클래스 매핑 설정
+#
+# 📝 Processor 설정 방식:
+# - processor_class가 지정되지 않으면 기본적으로 AutoProcessor 사용 (권장)
+# - 특수한 processor가 필요한 모델만 processor_class 명시적 지정
+# - 대부분의 VLM 모델은 AutoProcessor로 충분히 호환됩니다
 
 # 모델별 클래스 매핑
 model_classes:
-    # Qwen2-VL 모델들
+    # Qwen2-VL 모델들 (특수 processor 필요)
     "Qwen/Qwen2-VL-2B-Instruct":
         model_class: "Qwen2VLForConditionalGeneration"
-        processor_class: "Qwen2VLProcessor"
+        processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
         import_path: "transformers"
 
     "Qwen/Qwen2-VL-7B-Instruct":
         model_class: "Qwen2VLForConditionalGeneration"
-        processor_class: "Qwen2VLProcessor"
+        processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
         import_path: "transformers"
 
-    # LLaVA 모델들
+    # LLaVA 모델들 (AutoProcessor 사용)
     "llava-hf/llava-1.5-7b-hf":
         model_class: "LlavaForConditionalGeneration"
-        processor_class: "LlavaProcessor"
         import_path: "transformers"
+        # processor_class 미지정 -> AutoProcessor 사용
 
     "llava-hf/llava-1.5-13b-hf":
         model_class: "LlavaForConditionalGeneration"
-        processor_class: "LlavaProcessor"
         import_path: "transformers"
+        # processor_class 미지정 -> AutoProcessor 사용
 
-    # InternVL 모델들
+    # InternVL 모델들 (AutoProcessor 사용)
     "OpenGVLab/InternVL2-2B":
         model_class: "InternVLChatModel"
-        processor_class: "InternVLChatProcessor"
         import_path: "transformers"
+        # processor_class 미지정 -> AutoProcessor 사용
 
-    # PaliGemma 모델들
+    # PaliGemma 모델들 (특수 processor 필요)
     "google/paligemma-3b-pt-448":
         model_class: "PaliGemmaForConditionalGeneration"
-        processor_class: "PaliGemmaProcessor"
+        processor_class: "PaliGemmaProcessor" # 특수 processor 명시적 지정
         import_path: "transformers"
 
-    # Phi-3-Vision 모델들
+    # Phi-3-Vision 모델들 (AutoProcessor 사용)
     "microsoft/Phi-3-vision-128k-instruct":
         model_class: "Phi3VForCausalLM"
-        processor_class: "Phi3VProcessor"
         import_path: "transformers"
+        # processor_class 미지정 -> AutoProcessor 사용
 
-# 기본 fallback 설정 (AutoModel 사용)
+# 기본 fallback 설정 (VLM용 AutoModel 사용)
 default_fallback:
-    model_class: "AutoModelForCausalLM"
-    processor_class: "AutoProcessor"
+    model_class: "AutoModelForVision2Seq"
     import_path: "transformers"
+    # processor_class 미지정 -> AutoProcessor 사용
 
 # 공통 로딩 파라미터
 loading_params:
