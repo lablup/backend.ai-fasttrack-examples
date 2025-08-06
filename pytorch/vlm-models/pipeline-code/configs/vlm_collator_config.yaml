@@ -6,7 +6,7 @@ dataset_columns:
     # 기본 VQA 데이터셋 구조
     image_column: "image" # 이미지 컬럼명
     question_column: "question" # 질문 컬럼명
-    answer_column: "answer" # 답변 컬럼명
+    answer_column: "multiple_choice_answer" # 답변 컬럼명
 
     # 추가 컬럼들 (선택사항)
     context_column: null # 컨텍스트 정보
