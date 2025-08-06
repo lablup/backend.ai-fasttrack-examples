@@ -18,6 +18,7 @@ from tqdm import tqdm
 import evaluate
 
 from src.models.model import ModelLoader
+from src.data.collate_fn import create_vlm_collator
 from configs.settings import settings
 
 # tqdm을 통한 진행률 표시를 위해 로깅 레벨을 설정합니다.
@@ -203,8 +204,17 @@ def main():
     if model is None or processor is None:
         print("❌ Failed to load VLM model or processor")
         return
+
+    # 3. VLM 데이터 콜레이터 생성 (evaluation용)
+    print("Creating VLM data collator for evaluation...")
+    try:
+        vlm_collator = create_vlm_collator(processor, config_path='vlm_collator_config.yaml')
+        print("✅ VLM collator created successfully")
+    except Exception as e:
+        print(f"❌ Failed to create VLM collator: {e}")
+        return
     
-    # 3. 데이터셋 경로 설정 - 파이프라인 환경에서는 이전 task의 output을 input1에서 읽음
+    # 4. 데이터셋 경로 설정 - 파이프라인 환경에서는 이전 task의 output을 input1에서 읽음
     if settings.is_pipeline_env:
         readonly_dataset_path = settings.pipeline_input_path
         # 읽기 전용 경로를 쓰기 가능한 임시 경로로 복사
@@ -219,6 +229,7 @@ def main():
         test_dataset = full_dataset['test']
         print(f"Successfully loaded test split from {dataset_path}")
         print(f"Test dataset columns: {test_dataset.column_names}")
+        print(f"Test dataset size: {len(test_dataset)}")
     except FileNotFoundError:
         print(f"Error: Dataset directory not found at {dataset_path}")
         return
@@ -226,9 +237,10 @@ def main():
         print(f"Failed to load dataset from disk: {e}")
         return
 
-    # 4. 평가 실행: 전처리된 데이터 직접 사용
+    # 5. 평가 실행: collate_fn을 사용한 데이터 전처리
     if args.max_samples:
         test_dataset = test_dataset.select(range(args.max_samples))
+        print(f"Limited to {args.max_samples} samples for evaluation")
     
     # 배치 크기 설정 (GPU 메모리에 따라 조절)
     batch_size = int(os.getenv('EVAL_BATCH_SIZE', 4))  # VLM은 메모리 사용량이 많아 배치 크기를 줄임
@@ -244,77 +256,104 @@ def main():
         "max_new_tokens": 256,
         "do_sample": False,  # deterministic generation for evaluation
         "temperature": 0.0,
-        "pad_token_id": processor.tokenizer.pad_token_id,
     }
     
-    # eos_token 처리 - VLM 모델에서는 processor.tokenizer를 통해 접근
+    # pad_token_id와 eos_token_id 설정
     try:
-        if hasattr(processor.tokenizer, 'eos_token_id') and processor.tokenizer.eos_token_id is not None:
-            generation_config["eos_token_id"] = processor.tokenizer.eos_token_id
+        tokenizer = getattr(processor, 'tokenizer', processor)
+        if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None:
+            generation_config["pad_token_id"] = tokenizer.pad_token_id
+        if hasattr(tokenizer, 'eos_token_id') and tokenizer.eos_token_id is not None:
+            generation_config["eos_token_id"] = tokenizer.eos_token_id
     except Exception as e:
-        print(f"⚠️ Could not set eos_token_id: {e}")
+        print(f"⚠️ Could not set token ids: {e}")
     
-    # tqdm으로 전체 데이터셋에 대한 진행률을 표시합니다.
-    for i in tqdm(range(0, len(test_dataset), batch_size)):
-        # 1. 현재 배치에 해당하는 데이터(딕셔너리)를 가져옵니다.
-        batch = test_dataset[i : i + batch_size]
-        
-        # 2. 전처리된 데이터에서 conversation, images, reference 직접 추출
-        batch_conversations = batch.get("conversation", [])
-        batch_images = batch.get("images", [])  
-        batch_references = batch.get("reference", [])
-        
-        # 빈 값 필터링 및 검증
-        filtered_conversations = []
-        filtered_images = []
-        filtered_references = []
-        
-        for conv, img, ref in zip(batch_conversations, batch_images, batch_references):
-            if conv and img and ref and len(str(ref).strip()) > 0:
-                filtered_conversations.append(conv)
-                filtered_images.append(img)
-                filtered_references.append(str(ref).strip())
-        
-        if not filtered_conversations:
-            print(f"⚠️ Skipping batch {i//batch_size + 1}: No valid conversation-image-reference triplets")
-            continue
-
-        # 3. VLM 모델로 배치 처리
-        batch_predictions = []
-        for conv, img in zip(filtered_conversations, filtered_images):
-            try:
-                # VLM 입력 준비
-                inputs = processor(
-                    text=conv,
-                    images=img,
-                    return_tensors="pt"
-                ).to(model.device)
+    # 데이터셋을 배치로 처리
+    for i in tqdm(range(0, len(test_dataset), batch_size), desc="Evaluating"):
+        try:
+            # 현재 배치 데이터 가져오기
+            batch_data = []
+            batch_references = []
+            
+            for j in range(i, min(i + batch_size, len(test_dataset))):
+                example = test_dataset[j]
+                batch_data.append(example)
                 
-                # VLM 생성
+                # 참조 답변 추출 (데이터셋 구조에 따라 조정)
+                answer_col = vlm_collator.dataset_columns.get('answer_column', 'answer')
+                if answer_col in example and example[answer_col]:
+                    batch_references.append(str(example[answer_col]).strip())
+                else:
+                    # fallback: 다른 가능한 컬럼명들 시도
+                    possible_answer_cols = ['answer', 'text', 'label', 'response', 'target']
+                    ref_found = False
+                    for col in possible_answer_cols:
+                        if col in example and example[col]:
+                            batch_references.append(str(example[col]).strip())
+                            ref_found = True
+                            break
+                    if not ref_found:
+                        batch_references.append("[NO_REFERENCE]")
+            
+            if not batch_data:
+                continue
+                
+            # collate_fn을 사용하여 evaluation용 데이터 준비
+            # evaluation 모드로 messages 형식 설정
+            vlm_collator.text_processing['add_generation_prompt'] = True  # evaluation용 prompt 추가
+            
+            try:
+                # collator를 통해 배치 전처리
+                processed_batch = vlm_collator(batch_data)
+                
+                # 모델 추론
+                inputs = {k: v.to(model.device) if isinstance(v, torch.Tensor) else v 
+                         for k, v in processed_batch.items() if k != 'labels'}
+                
                 with torch.no_grad():
                     generated_ids = model.generate(**inputs, **generation_config)
                 
-                # 입력 토큰 제거하고 생성된 텍스트만 디코딩
-                input_token_len = inputs['input_ids'].shape[1]
-                generated_tokens = generated_ids[:, input_token_len:]
+                # 생성된 텍스트 디코딩
+                # 입력 길이만큼 제거하고 새로 생성된 부분만 추출
+                input_length = inputs['input_ids'].shape[1]
+                generated_tokens = generated_ids[:, input_length:]
                 
-                generated_text = processor.batch_decode(
+                # 배치 디코딩
+                batch_predictions = processor.batch_decode(
                     generated_tokens, 
                     skip_special_tokens=True
-                )[0].strip()
+                )
                 
-                batch_predictions.append(generated_text if generated_text else "[EMPTY_GENERATION]")
+                # 결과 정리
+                for pred in batch_predictions:
+                    cleaned_pred = pred.strip() if pred.strip() else "[EMPTY_GENERATION]"
+                    all_predictions.append(cleaned_pred)
                 
+                all_references.extend(batch_references)
+                
+                # 프롬프트 정보도 저장 (디버깅용)
+                for example in batch_data:
+                    question_col = vlm_collator.dataset_columns.get('question_column', 'question')
+                    question = example.get(question_col, "[NO_QUESTION]")
+                    all_prompts.append(str(question))
+                    
             except Exception as e:
-                print(f"⚠️ VLM generation failed for sample: {e}")
-                batch_predictions.append("[GENERATION_ERROR]")
-        
-        all_predictions.extend(batch_predictions)
-        all_references.extend(filtered_references)
-        all_prompts.extend([str(conv) for conv in filtered_conversations])
+                print(f"⚠️ Error processing batch {i//batch_size + 1}: {e}")
+                # 에러 발생 시 빈 결과로 채움
+                for _ in range(len(batch_data)):
+                    all_predictions.append("[PROCESSING_ERROR]")
+                all_references.extend(batch_references)
+                all_prompts.extend(["[ERROR]"] * len(batch_data))
+                continue
+                
+        except Exception as e:
+            print(f"❌ Critical error in batch {i//batch_size + 1}: {e}")
+            continue
 
-    # 5. 정량적 성능 지표 계산 및 결과 저장 (개선된 평가 메트릭)
-    print("\nCalculating quantitative metrics...")
+    # 6. 정량적 성능 지표 계산 및 결과 저장 (개선된 평가 메트릭)
+    print(f"\nCalculating quantitative metrics...")
+    print(f"📊 Total samples processed: {len(all_predictions)}")
+    print(f"📊 Valid predictions: {len([p for p in all_predictions if p not in ['[EMPTY_GENERATION]', '[PROCESSING_ERROR]']])}")
     
     # 데이터 유효성 검증
     if not all_predictions or not all_references:

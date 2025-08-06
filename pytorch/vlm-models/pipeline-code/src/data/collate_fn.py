@@ -622,18 +622,19 @@ class VLMDataCollator:
     def _process_with_processor(self, texts: List[str], visual_data: List[List[Image.Image]]) -> Dict[str, torch.Tensor]:
         """프로세서를 사용하여 텍스트와 시각 데이터를 처리합니다."""
         
-        # 빈 시각 데이터 필터링
-        non_empty_visuals = []
+        # 빈 시각 데이터 필터링 및 평탄화
+        actual_images = []
         for visuals in visual_data:
-            if visuals:
-                # 비디오인 경우 (다중 프레임) 첫 번째 프레임만 사용 (대부분의 VLM processor 호환성)
-                # 실제 비디오를 지원하는 모델의 경우 여기서 다르게 처리할 수 있음
-                non_empty_visuals.append(visuals[0] if len(visuals) == 1 else visuals)
-            else:
-                non_empty_visuals.append(None)
-        
-        # None이 아닌 이미지들만 추출
-        actual_images = [img for img in non_empty_visuals if img is not None]
+            if visuals and len(visuals) > 0:
+                # 시각 데이터가 PIL Image 리스트인지 확인
+                if isinstance(visuals[0], Image.Image):
+                    if len(visuals) == 1:
+                        # 단일 이미지: 그대로 사용
+                        actual_images.append(visuals[0])
+                    else:
+                        # 다중 프레임 (비디오): 첫 번째 프레임만 사용 (VLM processor 호환성)
+                        actual_images.append(visuals[0])
+                        print(f"📹 Using first frame from {len(visuals)} video frames")
         
         if actual_images:
             # 이미지가 있는 경우
