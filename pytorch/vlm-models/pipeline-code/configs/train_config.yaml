@@ -14,8 +14,7 @@ save_total_limit: 2
 dataset_text_field: ""
 dataset_kwargs:
     skip_prepare_dataset: true
-max_seq_length: 2048 # VLM을 위한 명시적 최대 길이 설정
-packing: false # VLM 데이터에서는 packing 비활성화
+packing: true # VLM 데이터에서는 packing 비활성화
 load_best_model_at_end: true
 metric_for_best_model: "eval_loss" # 또는 사용하는 평가 메트릭
 greater_is_better: false # loss의 경우 false, accuracy 등은 true

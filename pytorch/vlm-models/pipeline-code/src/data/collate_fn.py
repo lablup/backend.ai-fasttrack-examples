@@ -553,7 +553,6 @@ class VLMDataCollator:
         Returns:
             Dict[str, torch.Tensor]: 모델 입력용 텐서 딕셔너리
         """
-        print(f"🔧 VLMDataCollator called with is_training={is_training}, batch_size={len(examples)}")
         
         texts = []
         visual_data = []  # 이미지 또는 비디오 프레임을 담을 리스트
@@ -650,7 +649,6 @@ class VLMDataCollator:
                 mask = torch.isin(labels, torch.tensor(list(self.ignore_in_loss_ids), device=labels.device))
                 # 마스크가 True인 위치의 값을 ignore_index로 변경
                 labels[mask] = ignore_index
-                print(f"🔧 Masked {torch.sum(mask).item()} tokens in loss calculation")
             
             # (선택적) 추가 마스킹 로직
             # 프롬프트 부분 마스킹이 필요한 경우 여기에 추가할 수 있습니다.
@@ -661,14 +659,6 @@ class VLMDataCollator:
             
             batch["labels"] = labels
         
-        # VLM 데이터 콜레이터 출력 검증 (디버깅용)
-        if is_training:
-            print(f"🔍 VLM Collator Output Keys: {list(batch.keys())}")
-            print(f"🔍 input_ids shape: {batch['input_ids'].shape}")
-            if 'labels' in batch:
-                print(f"🔍 labels shape: {batch['labels'].shape}")
-            if 'pixel_values' in batch:
-                print(f"🔍 pixel_values shape: {batch['pixel_values'].shape}")
         
         return batch
     
