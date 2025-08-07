@@ -638,7 +638,6 @@ class VLMDataCollator:
                 max_length=self.text_processing.get('max_length', 2048)
             )
         if is_training:
-            print("🔄 Training mode detected, applying label masking...")
             # 6. 레이블 생성 및 마스킹 (일반화된 버전)
             labels = batch["input_ids"].clone()
             ignore_index = self.label_masking.get('ignore_index', -100)
