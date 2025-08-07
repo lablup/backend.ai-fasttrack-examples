@@ -661,6 +661,15 @@ class VLMDataCollator:
             
             batch["labels"] = labels
         
+        # VLM 데이터 콜레이터 출력 검증 (디버깅용)
+        if is_training:
+            print(f"🔍 VLM Collator Output Keys: {list(batch.keys())}")
+            print(f"🔍 input_ids shape: {batch['input_ids'].shape}")
+            if 'labels' in batch:
+                print(f"🔍 labels shape: {batch['labels'].shape}")
+            if 'pixel_values' in batch:
+                print(f"🔍 pixel_values shape: {batch['pixel_values'].shape}")
+        
         return batch
     
     def _process_with_processor(self, texts: List[str], visual_data: List[List[Image.Image]]) -> Dict[str, torch.Tensor]:

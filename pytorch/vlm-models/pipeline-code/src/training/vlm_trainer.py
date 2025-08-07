@@ -136,6 +136,9 @@ class VLMTrainer:
             processing_class=self.processor.tokenizer,  # VLM processor 전체를 사용
             peft_config=peft_config,
             data_collator=self.data_collator,  # VLM 전용 데이터 콜레이터 사용
+            # VLM 사용자 정의 data_collator를 위한 추가 설정
+            # dataset_text_field="",  # 빈 문자열로 설정 (사용자 정의 collator 사용)
+            # max_seq_length=2048,  # 최대 시퀀스 길이 명시적 설정
         )
         
         print("🚀 Starting VLM fine-tuning...")
