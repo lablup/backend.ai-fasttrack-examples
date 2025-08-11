@@ -6,12 +6,11 @@ VLM 모델을 위한 사용자 정의 데이터 콜레이터
 """
 
 import os
-import re
 import yaml
 import torch
 from pathlib import Path
 from PIL import Image
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Tuple
 
 # 비디오 처리를 위한 선택적 import
 try:
@@ -68,224 +67,45 @@ class VLMDataCollator:
         self.text_processing = self.config.get('text_processing', {})
         self.label_masking = self.config.get('label_masking', {})
         self.batch_processing = self.config.get('batch_processing', {})
-        self.special_tokens_config = self.config.get('special_tokens', {})
         self.video_processing = self.config.get('video_processing', {})  # 비디오 처리 설정 추가
         
         # 특수 토큰 ID 미리 계산 (설정 초기화 후)
         self._setup_special_tokens()
     
     def _setup_special_tokens(self):
-        """토크나이저의 모든 특수 토큰을 자동으로 감지하고 설정합니다."""
-        print("🔍 Auto-detecting special tokens from tokenizer...")
+        """토크나이저의 특수 토큰을 간단하게 감지하여 손실에서 무시합니다."""
+        print("🔍 Detecting special tokens via tokenizer.all_special_ids...")
         self.special_token_ids = {}
-        self.ignore_in_loss_ids = set()  # 손실 계산 시 무시할 토큰 ID 집합
+        self.ignore_in_loss_ids = set()
 
-        # tokenizer 객체 가져오기 (getattr로 통일)
         tokenizer = getattr(self.processor, 'tokenizer', self.processor)
-        print(f"📊 Tokenizer type: {type(tokenizer).__name__}")
-        
-        # 1. special_tokens_map의 모든 토큰 처리 (additional_special_tokens 포함)
-        self._process_all_special_tokens(tokenizer)
-        
-        # 2. apply_chat_template 호환성 검증
-        self._verify_chat_template_compatibility(tokenizer)
-        
-        # 3. Manual config 처리 (고급 사용자용 override)
-        self._process_manual_config_if_enabled(tokenizer)
-        
-        print(f"✅ Auto-detection complete.")
-        print(f"   📋 Total special tokens found: {len(self.special_token_ids)}")
-        print(f"   🚫 Tokens to ignore in loss: {len(self.ignore_in_loss_ids)}")
+        all_ids = set(getattr(tokenizer, 'all_special_ids', []) or [])
 
-    def _process_all_special_tokens(self, tokenizer):
-        """special_tokens_map의 모든 특수 토큰과 additional_special_tokens를 모두 처리합니다."""
-        print("  🔧 Processing all special tokens from special_tokens_map...")
-        
-        special_tokens_map = getattr(tokenizer, 'special_tokens_map', {})
-        print(f"special_tokens_map length : {len(special_tokens_map)}")
+        # 간단화: 모든 special id를 무시 대상에 추가
+        self.ignore_in_loss_ids.update(all_ids)
 
-        # 1. special_tokens_map 처리
-        for token_attr, token_str in special_tokens_map.items():
-            try:
-                # additional_special_tokens는 별도로 처리하므로 건너뛰기
-                if token_attr == 'additional_special_tokens':
-                    continue
-                    
-                # 토큰 ID 가져오기 (getattr로 통일)
-                token_id = getattr(tokenizer, f'{token_attr}_id', None)
-                
-                # token_id가 리스트인 경우 처리 (실제 문제 원인)
-                if isinstance(token_id, list):
-                    if len(token_id) > 0:
-                        # 리스트인 경우 모든 ID를 처리
-                        print(f"    📝 Token ID '{token_attr}_id' is a list: {token_id}, adding all IDs")
-                        for idx, single_id in enumerate(token_id):
-                            # token_attr 그대로 사용 (clean_name 사용 안함)
-                            if len(token_id) > 1:
-                                # 여러 ID가 있는 경우 인덱스 추가
-                                token_name = f"{token_attr}_{idx}"
-                            else:
-                                token_name = token_attr
-                            
-                            self.special_token_ids[token_name] = single_id
-                            self.ignore_in_loss_ids.add(single_id)
-                            print(f"    ✅ {token_name}: '{token_str}' -> ID: {single_id}")
-                    else:
-                        print(f"    ⚠️ Token ID '{token_attr}_id' is an empty list, skipping")
-                        continue
-                else:
-                    # 단일 ID인 경우
-                    if token_id is not None:
-                        # token_attr 그대로 사용 (clean_name 사용 안함)
-                        self.special_token_ids[token_attr] = token_id
-                        
-                        # 모든 특수 토큰은 기본적으로 손실 계산에서 제외
-                        self.ignore_in_loss_ids.add(token_id)
-                        
-                        print(f"    ✅ {token_attr}: '{token_str}' -> ID: {token_id}")
-                    else:
-                        print(f"    ⚠️ No ID found for token '{token_attr}': '{token_str}'")
-                    
-            except Exception as e:
-                print(f"    ❌ Error processing token '{token_attr}': {e}")
-                print(f"    🔍 Token value type: {type(token_str)}, Token ID type: {type(token_id)}")
-                print(f"    🔍 Token attr: '{token_attr}', Token str: {token_str}, Token ID: {token_id}")
-                continue
-
-        # 2. additional_special_tokens 처리 (통합)
-        print("  🎯 Processing additional special tokens...")
-        additional_tokens = getattr(tokenizer, 'additional_special_tokens', [])
-        additional_token_ids = getattr(tokenizer, 'additional_special_tokens_ids', [])
-        
-        if additional_tokens:
-            print(f"    📝 Found {len(additional_tokens)} additional special tokens")
-            
-            for i, token_str in enumerate(additional_tokens):
-                if i < len(additional_token_ids):
-                    token_id = additional_token_ids[i]
-                    
-                    # 간단한 토큰 이름 생성
-                    clean_token = token_str.replace('<', '').replace('>', '').replace('|', '_')
-                    token_name = f"special_{clean_token}"
-                    
-                    self.special_token_ids[token_name] = token_id
-                    
-                    # 모든 추가 특수 토큰도 손실 계산에서 제외
-                    self.ignore_in_loss_ids.add(token_id)
-                    
-                    print(f"    ✅ {token_name}: '{token_str}' -> ID: {token_id}")
-
-    def _verify_chat_template_compatibility(self, tokenizer):
-        """apply_chat_template과의 호환성을 검증합니다."""
-        print("  🔍 Verifying chat template compatibility...")
-        
-        # 테스트 메시지 생성
-        test_messages = [
-            {"role": "user", "content": [
-                {"type": "text", "text": "Test message"},
-                {"type": "image"},
-                {"type": "text", "text": "What do you see?"}
-            ]},
-            {"role": "assistant", "content": [
-                {"type": "text", "text": "I see an image."}
-            ]}
-        ]
-        
+        # 선택적으로 이름 매핑(로깅용) 채우기
         try:
-            test_text = self.processor.apply_chat_template(
-                test_messages, 
-                tokenize=False,
-                add_generation_prompt=False
-            )
-            
-            # 생성된 텍스트에서 특수 토큰 확인
-            self._check_template_tokens(test_text, tokenizer)
-            print("    ✅ Chat template compatibility verified")
-                
-        except Exception as e:
-            print(f"    ⚠️ Chat template test failed: {e}")
+            special_map = getattr(tokenizer, 'special_tokens_map', {}) or {}
+            for k, tok in special_map.items():
+                if k == 'additional_special_tokens':
+                    # list 처리
+                    add_ids = getattr(tokenizer, 'additional_special_tokens_ids', []) or []
+                    for i, sid in enumerate(add_ids):
+                        self.special_token_ids[f"additional_special_tokens_{i}"] = sid
+                else:
+                    sid = getattr(tokenizer, f"{k}_id", None)
+                    if isinstance(sid, list):
+                        for i, s in enumerate(sid):
+                            self.special_token_ids[f"{k}_{i}"] = s
+                    elif sid is not None:
+                        self.special_token_ids[k] = sid
+        except Exception:
+            pass
 
-    def _check_template_tokens(self, template_text, tokenizer):
-        """템플릿 텍스트에 포함된 특수 토큰들을 확인합니다."""
-        print(f"    📄 Template text preview: {template_text[:100]}...")
-        
-        # 템플릿에서 특수 토큰 패턴 찾기
-        special_token_pattern = r'<[^>]+>'
-        found_tokens = re.findall(special_token_pattern, template_text)
-        
-        if found_tokens:
-            print(f"    🎯 Found template tokens: {found_tokens}")
-            
-            # 발견된 토큰들이 우리가 감지한 토큰 목록에 있는지 확인
-            for token in found_tokens:
-                token_id = tokenizer.convert_tokens_to_ids(token)
-                if token_id != tokenizer.unk_token_id:
-                    # 새로운 토큰 발견시 추가
-                    token_name = f"template_token_{token.replace('<', '').replace('>', '')}"
-                    if token_id not in self.special_token_ids.values():
-                        self.special_token_ids[token_name] = token_id
-                        self.ignore_in_loss_ids.add(token_id)
-                        print(f"    🆕 Added template token: '{token}' -> ID: {token_id}")
+        print(f"✅ Special tokens collected: ignore_in_loss_ids={len(self.ignore_in_loss_ids)}")
 
-    def _process_manual_config_if_enabled(self, tokenizer):
-        """YAML 설정에서 manual_tokens가 활성화된 경우 처리합니다."""
-        manual_tokens = self.special_tokens_config.get('manual_tokens', {})
-        
-        if not manual_tokens.get('enabled', False):
-            print("  ⏭️ Manual token configuration disabled (using auto-detection only)")
-            return
-        
-        print("  🔧 Processing manual token configuration...")
-        manual_token_list = manual_tokens.get('tokens', [])
-        
-        if not manual_token_list:
-            print("    ⚠️ Manual tokens enabled but no tokens specified")
-            return
-        
-        override_count = 0
-        new_count = 0
-        
-        for token_config in manual_token_list:
-            if not isinstance(token_config, dict):
-                print(f"    ❌ Invalid token config (must be dict): {token_config}")
-                continue
-                
-            token_name = token_config.get('name')
-            token_text = token_config.get('token')
-            ignore_in_loss = token_config.get('ignore_in_loss', True)
-            
-            if not token_name or not token_text:
-                print(f"    ❌ Invalid token config (missing name/token): {token_config}")
-                continue
-            
-            # 토큰 ID 계산
-            token_id = tokenizer.convert_tokens_to_ids(token_text)
-            if token_id == tokenizer.unk_token_id:
-                print(f"    ⚠️ Unknown token '{token_text}' for '{token_name}' - skipping")
-                continue
-            
-            # 기존 토큰 override 또는 새 토큰 추가
-            if token_name in self.special_token_ids:
-                old_id = self.special_token_ids[token_name]
-                print(f"    🔄 Override '{token_name}': {old_id} -> {token_id}")
-                override_count += 1
-                
-                # 기존 ID 제거
-                if old_id in self.ignore_in_loss_ids:
-                    self.ignore_in_loss_ids.remove(old_id)
-            else:
-                print(f"    ➕ Add manual token '{token_name}': {token_id}")
-                new_count += 1
-            
-            # 새 설정 적용
-            self.special_token_ids[token_name] = token_id
-            if ignore_in_loss:
-                self.ignore_in_loss_ids.add(token_id)
-        
-        if override_count > 0 or new_count > 0:
-            print(f"    ✅ Manual config processed: {override_count} overrides, {new_count} new tokens")
-        else:
-            print("    ℹ️ No valid manual tokens processed")
+    
 
     def _process_image(self, image) -> Optional[Image.Image]:
         """이미지 전처리를 수행합니다. 파일 경로와 PIL Image 모두 지원합니다."""
@@ -346,8 +166,10 @@ class VLMDataCollator:
         
         return image
     
-    def _process_video(self, video) -> Optional[List[Image.Image]]:
-        """비디오를 처리하여 프레임 리스트를 반환합니다."""
+    def _process_video(self, video) -> Optional[List[Tuple[Image.Image, Optional[float]]]]:
+        """비디오를 처리하여 (프레임, 타임스탬프) 리스트를 반환합니다.
+        Returns: List of tuples (PIL.Image, timestamp_seconds or None)
+        """
         if video is None or not self.video_processing.get('enabled', False):
             return None
             
@@ -372,8 +194,10 @@ class VLMDataCollator:
             print(f"⚠️ Unsupported video type: {type(video)}")
             return None
     
-    def _extract_video_frames(self, video_path: str) -> Optional[List[Image.Image]]:
-        """비디오 파일에서 프레임을 추출합니다."""
+    def _extract_video_frames(self, video_path: str) -> Optional[List[Tuple[Image.Image, Optional[float]]]]:
+        """비디오 파일에서 프레임과 타임스탬프를 추출합니다.
+        Returns: List of tuples (PIL.Image, timestamp_seconds or None)
+        """
         frame_config = self.video_processing.get('frame_extraction', {})
         library = frame_config.get('library', 'decord')
         num_frames = frame_config.get('num_frames', 8)
@@ -392,8 +216,8 @@ class VLMDataCollator:
                 print(f"❌ No video processing library available (decord: {DECORD_AVAILABLE}, cv2: {CV2_AVAILABLE})")
                 return None
     
-    def _extract_frames_with_decord(self, video_path: str, num_frames: int, sampling_strategy: str) -> Optional[List[Image.Image]]:
-        """Decord를 사용하여 비디오 프레임을 추출합니다."""
+    def _extract_frames_with_decord(self, video_path: str, num_frames: int, sampling_strategy: str) -> Optional[List[Tuple[Image.Image, Optional[float]]]]:
+        """Decord를 사용하여 비디오 프레임과 타임스탬프를 추출합니다."""
         try:
             vr = decord.VideoReader(video_path, ctx=decord.cpu(0))
             total_frames = len(vr)
@@ -416,29 +240,44 @@ class VLMDataCollator:
             
             # 프레임 추출
             frames = vr.get_batch(indices).asnumpy()  # Shape: (num_frames, H, W, C)
-            
+
+            # 타임스탬프 계산 시도
+            timestamps: List[Optional[float]] = []
+            for idx in indices:
+                ts_val: Optional[float] = None
+                try:
+                    ts_val = float(vr.get_frame_timestamp(int(idx)))
+                except Exception:
+                    try:
+                        fps = float(vr.get_avg_fps())
+                        ts_val = (float(idx) / fps) if fps and fps > 0 else None
+                    except Exception:
+                        ts_val = None
+                timestamps.append(ts_val)
+
             # PIL Image로 변환
-            pil_frames = []
-            for frame in frames:
+            pil_frames_with_ts: List[Tuple[Image.Image, Optional[float]]] = []
+            for frame, ts in zip(frames, timestamps):
                 pil_frame = Image.fromarray(frame)
                 # RGB 변환 옵션 적용
                 if self.video_processing.get('file_processing', {}).get('convert_to_rgb', True):
                     if pil_frame.mode != 'RGB':
                         pil_frame = pil_frame.convert('RGB')
-                pil_frames.append(pil_frame)
+                pil_frames_with_ts.append((pil_frame, ts))
             
-            print(f"✅ Successfully extracted {len(pil_frames)} frames from video: {video_path}")
-            return pil_frames
+            print(f"✅ Successfully extracted {len(pil_frames_with_ts)} frames from video: {video_path}")
+            return pil_frames_with_ts
             
         except Exception as e:
             print(f"❌ Error extracting frames with decord: {e}")
             return None
     
-    def _extract_frames_with_cv2(self, video_path: str, num_frames: int, sampling_strategy: str) -> Optional[List[Image.Image]]:
-        """OpenCV를 사용하여 비디오 프레임을 추출합니다."""
+    def _extract_frames_with_cv2(self, video_path: str, num_frames: int, sampling_strategy: str) -> Optional[List[Tuple[Image.Image, Optional[float]]]]:
+        """OpenCV를 사용하여 비디오 프레임과 타임스탬프를 추출합니다."""
         try:
             cap = cv2.VideoCapture(video_path)
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = float(cap.get(cv2.CAP_PROP_FPS)) if cap.get(cv2.CAP_PROP_FPS) else 0.0
             
             if total_frames == 0:
                 print(f"⚠️ Video has no frames: {video_path}")
@@ -455,7 +294,7 @@ class VLMDataCollator:
                 indices = torch.linspace(0, total_frames - 1, min(num_frames, total_frames)).long().tolist()
             
             # 프레임 추출
-            pil_frames = []
+            pil_frames_with_ts: List[Tuple[Image.Image, Optional[float]]] = []
             for idx in indices:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
                 ret, frame = cap.read()
@@ -463,15 +302,16 @@ class VLMDataCollator:
                     # BGR to RGB 변환
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     pil_frame = Image.fromarray(frame_rgb)
-                    pil_frames.append(pil_frame)
+                    ts_val: Optional[float] = (float(idx) / fps) if fps and fps > 0 else None
+                    pil_frames_with_ts.append((pil_frame, ts_val))
                 else:
                     print(f"⚠️ Failed to read frame at index {idx}")
             
             cap.release()
             
-            if pil_frames:
-                print(f"✅ Successfully extracted {len(pil_frames)} frames from video: {video_path}")
-                return pil_frames
+            if pil_frames_with_ts:
+                print(f"✅ Successfully extracted {len(pil_frames_with_ts)} frames from video: {video_path}")
+                return pil_frames_with_ts
             else:
                 print(f"❌ No frames could be extracted from video: {video_path}")
                 return None
@@ -481,7 +321,7 @@ class VLMDataCollator:
             return None
     
     def _format_messages(self, example: dict, is_training: bool = True) -> list:
-        """예제를 메시지 형식으로 변환합니다."""
+        """기본 텍스트만을 포함하는 메시지를 생성합니다 (이미지 자리표시자 제외)."""
         # 컬럼명 매핑
         image_col = self.dataset_columns.get('image_column', 'image')
         question_col = self.dataset_columns.get('question_column', 'question')
@@ -530,10 +370,9 @@ class VLMDataCollator:
                         'type': 'text',
                         'text': text
                     })
+                # 템플릿에 포함된 고정 'image' 항목은 무시하고, 실제 비주얼 데이터에 맞춰 동적으로 추가합니다.
                 elif content_item['type'] == 'image':
-                    message['content'].append({
-                        'type': 'image'
-                    })
+                    continue
                 else:
                     # 다른 타입들 (비디오 등) 지원
                     message['content'].append(content_item.copy())
@@ -542,6 +381,31 @@ class VLMDataCollator:
         
         return messages
     
+    def _build_messages_with_visuals(self, base_messages: list, visuals_count: int, timestamps: Optional[List[Optional[float]]]) -> list:
+        """시각 데이터(다중 이미지/프레임)에 맞춰 메시지에 이미지와 타임스탬프 텍스트를 동적으로 추가합니다."""
+        messages = []
+        for msg in base_messages:
+            msg_copy = {"role": msg["role"], "content": []}
+            # 기존 텍스트들은 그대로 복사
+            for item in msg["content"]:
+                if item.get("type") == "text":
+                    msg_copy["content"].append({"type": "text", "text": item.get("text", "")})
+            # user 메시지에만 이미지와 프레임 텍스트를 삽입
+            if msg_copy["role"] == "user" and visuals_count > 0:
+                for i in range(visuals_count):
+                    ts = None
+                    if timestamps is not None and i < len(timestamps):
+                        ts = timestamps[i]
+                    # 프레임/이미지 설명 텍스트
+                    if ts is not None:
+                        label = f"Frame {i+1} (t={ts:.2f}s):"
+                    else:
+                        label = f"Image {i+1}:"
+                    msg_copy["content"].append({"type": "text", "text": label})
+                    msg_copy["content"].append({"type": "image"})
+            messages.append(msg_copy)
+        return messages
+
     def __call__(self, examples: List[Dict[str, Any]], is_training: bool = True) -> Dict[str, torch.Tensor]:
         """
         배치 데이터를 처리하는 메인 함수 - 플래그 기반으로 이미지와 비디오 처리를 제어
@@ -553,14 +417,14 @@ class VLMDataCollator:
         Returns:
             Dict[str, torch.Tensor]: 모델 입력용 텐서 딕셔너리
         """
-        
-        texts = []
-        visual_data = []  # 이미지 또는 비디오 프레임을 담을 리스트
-        
+
+        texts: List[str] = []
+        visual_data: List[List[Image.Image]] = []  # 각 샘플별 이미지 리스트
+
         # 데이터 처리 플래그 확인
         process_image = self.data_processing.get('image_data', True)  # 기본값: True
         process_video = self.data_processing.get('video_data', False)  # 기본값: False
-        
+
         # 두 플래그가 모두 활성화된 경우 확인 (processor 호환성 검사)
         if process_image and process_video:
             # 대부분의 VLM processor는 images 파라미터에 하나의 타입만 받을 수 있음
@@ -568,41 +432,47 @@ class VLMDataCollator:
             print("⚠️ Both image_data and video_data are enabled. Using video data as priority.")
             print("💡 Note: Most VLM processors can only handle one visual data type at a time.")
             process_image = False  # 이미지 처리 비활성화
-        
+
         # 배치의 각 예제 처리
         for example in examples:
-            processed_visuals = []
-            
-            # 1. 비디오 처리 (video_data 플래그가 활성화된 경우)
+            visuals_images: List[Image.Image] = []
+            frame_timestamps: Optional[List[Optional[float]]] = None
+
+            # 1) 비디오 우선 처리
             if process_video:
                 video_col = self.dataset_columns.get('video_column', 'video')
                 if video_col in example and example[video_col] is not None:
                     video_frames = self._process_video(example[video_col])
                     if video_frames:
-                        processed_visuals.extend(video_frames)
+                        visuals_images = [img for (img, _ts) in video_frames]
+                        frame_timestamps = [ts for (_img, ts) in video_frames]
 
-            
-            # 2. 이미지 처리 (image_data 플래그가 활성화된 경우)
-            if process_image and not processed_visuals:  # 비디오가 처리되지 않은 경우에만
-                image_col = self.dataset_columns.get('image_column', 'image')
-                if image_col in example and example[image_col] is not None:
-                    processed_image = self._process_image(example[image_col])
-                    if processed_image is not None:
-                        processed_visuals.append(processed_image)
-            
-            # 프로세서에 맞는 형태로 래핑
-            if processed_visuals:
-                visual_data.append(processed_visuals)
-            else:
-                visual_data.append([])  # 빈 리스트로 처리
-            
-            # 3. 메시지 형식으로 변환 (학습용)
-            messages = self._format_messages(example, is_training=is_training)
-            
-            # 4. 채팅 템플릿 적용
+            # 2) 이미지 처리 (비디오 미사용이거나 실패 시)
+            if (not process_video) or (not visuals_images):
+                if self.data_processing.get('image_data', True):
+                    image_col = self.dataset_columns.get('image_column', 'image')
+                    if image_col in example and example[image_col] is not None:
+                        img_val = example[image_col]
+                        if isinstance(img_val, (list, tuple)):
+                            for one in img_val:
+                                processed = self._process_image(one)
+                                if processed is not None:
+                                    visuals_images.append(processed)
+                        else:
+                            processed = self._process_image(img_val)
+                            if processed is not None:
+                                visuals_images.append(processed)
+                        # 이미지 데이터에는 타임스탬프 없음
+                        if visuals_images and frame_timestamps is None:
+                            frame_timestamps = [None] * len(visuals_images)
+
+            # 3) 메시지 생성 및 chat template 적용 (다중 프레임/이미지 지원)
+            base_messages = self._format_messages(example, is_training=is_training)
+            messages = self._build_messages_with_visuals(base_messages, len(visuals_images), frame_timestamps)
+
             try:
                 text = self.processor.apply_chat_template(
-                    messages, 
+                    messages,
                     add_generation_prompt=self.text_processing.get('add_generation_prompt', False),
                     tokenize=False
                 )
@@ -612,20 +482,18 @@ class VLMDataCollator:
                 # fallback: 간단한 텍스트 결합
                 question = example.get(self.dataset_columns.get('question_column', 'question'), '')
                 answer = example.get(self.dataset_columns.get('answer_column', 'answer'), '')
-                
-                # 비디오/이미지 태그 추가
-                if processed_visuals:
-                    if len(processed_visuals) > 1:  # 비디오 (다중 프레임)
-                        visual_tag = "<video>"
-                    else:  # 단일 이미지
-                        visual_tag = "<image>"
-                    texts.append(f"{visual_tag}\nQuestion: {question}\nAnswer: {answer}")
+                if visuals_images:
+                    tag = "<video>" if len(visuals_images) > 1 else "<image>"
+                    texts.append(f"{tag}\nQuestion: {question}\nAnswer: {answer}")
                 else:
                     texts.append(f"Question: {question}\nAnswer: {answer}")
-        
+
+            # 4) 시각 데이터 저장 (샘플 단위의 리스트)
+            visual_data.append(visuals_images)
+
         # 5. 프로세서로 배치 처리
         try:
-            # VLM 모델에 따라 다른 처리 방식 적용
+            # VLM 모델에 따라 다른 처리 방식 적용 (샘플별 다중 이미지 지원)
             batch = self._process_with_processor(texts, visual_data)
         except Exception as e:
             print(f"❌ Error processing batch with processor: {e}")
@@ -641,49 +509,58 @@ class VLMDataCollator:
             # 6. 레이블 생성 및 마스킹 (일반화된 버전)
             labels = batch["input_ids"].clone()
             ignore_index = self.label_masking.get('ignore_index', -100)
-            
+
             # 미리 계산된 ignore_in_loss_ids 집합을 사용하여 한 번에 마스킹
             if self.ignore_in_loss_ids:
                 # boolean 마스크 생성: labels 텐서의 각 요소가 무시할 ID 집합에 속하는지 확인
                 mask = torch.isin(labels, torch.tensor(list(self.ignore_in_loss_ids), device=labels.device))
                 # 마스크가 True인 위치의 값을 ignore_index로 변경
                 labels[mask] = ignore_index
-            
+
             # (선택적) 추가 마스킹 로직
             # 프롬프트 부분 마스킹이 필요한 경우 여기에 추가할 수 있습니다.
             # 예: assistant 응답 시작 전까지의 모든 토큰을 마스킹
             if self.label_masking.get('mask_input_tokens', False):
                 # 이 부분은 모델별 chat template에 따라 다르게 구현될 수 있습니다.
                 print("💡 Input token masking is enabled but not implemented yet.")
-            
+
             batch["labels"] = labels
-        
-        
+
         return batch
     
     def _process_with_processor(self, texts: List[str], visual_data: List[List[Image.Image]]) -> Dict[str, torch.Tensor]:
-        """프로세서를 사용하여 텍스트와 시각 데이터를 처리합니다."""
-        
-        # 빈 시각 데이터 필터링 및 평탄화
-        actual_images = []
+        """프로세서를 사용하여 텍스트와 시각 데이터를 처리합니다.
+        - 각 샘플별로 다중 이미지/프레임을 지원합니다.
+        - visual_data는 len(texts)와 동일한 길이의 리스트이며, 각 원소는 해당 샘플의 이미지 리스트입니다.
+        """
+
+        # 입력 정규화: None -> [] , 단일 이미지 -> [image]
+        images_per_sample: List[List[Image.Image]] = []
+        has_any_image = False
         for visuals in visual_data:
-            if visuals and len(visuals) > 0:
-                # 시각 데이터가 PIL Image 리스트인지 확인
-                if isinstance(visuals[0], Image.Image):
-                    if len(visuals) == 1:
-                        # 단일 이미지: 그대로 사용
-                        actual_images.append(visuals[0])
-                    else:
-                        # 다중 프레임 (비디오): 첫 번째 프레임만 사용 (VLM processor 호환성)
-                        actual_images.append(visuals[0])
-                        print(f"📹 Using first frame from {len(visuals)} video frames")
-        
-        if actual_images:
-            # 이미지가 있는 경우
+            if visuals is None:
+                images_per_sample.append([])
+                continue
+            # 일부 구현에서 visuals가 단일 이미지일 수 있으므로 보정
+            if isinstance(visuals, Image.Image):
+                images_per_sample.append([visuals])
+                has_any_image = True
+            elif isinstance(visuals, (list, tuple)):
+                # 리스트 내부 타입 확인 후 PIL이 아닌 경우 필터링
+                valid_imgs = [v for v in visuals if isinstance(v, Image.Image)]
+                images_per_sample.append(valid_imgs)
+                if len(valid_imgs) > 0:
+                    has_any_image = True
+            else:
+                # 알 수 없는 타입 -> 빈 처리
+                images_per_sample.append([])
+
+        if has_any_image:
             try:
+                # 샘플별 다중 이미지 지원: images=[ [img1,img2], [], [img3] , ... ]
                 batch = self.processor(
                     text=texts,
-                    images=actual_images,
+                    images=images_per_sample,
                     return_tensors=self.batch_processing.get('return_tensors', 'pt'),
                     padding=self.text_processing.get('padding', True),
                     truncation=self.text_processing.get('truncation', True),
@@ -691,8 +568,8 @@ class VLMDataCollator:
                 )
                 return batch
             except Exception as e:
-                print(f"⚠️ Error processing with images, trying text-only: {e}")
-        
+                print(f"⚠️ Error processing with multi-image inputs, trying text-only: {e}")
+
         # 이미지가 없거나 처리 실패 시 텍스트만 처리
         batch = self.processor(
             text=texts,
@@ -701,7 +578,7 @@ class VLMDataCollator:
             truncation=self.text_processing.get('truncation', True),
             max_length=self.text_processing.get('max_length', 2048)
         )
-        
+
         return batch
 
 def create_vlm_collator(processor, config_path: str = 'vlm_collator_config.yaml'):

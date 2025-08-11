@@ -52,6 +52,21 @@ image_processing:
     resize_mode: "keep_aspect" # 리사이즈 모드: keep_aspect, crop, stretch
     max_size: null # 최대 크기 제한 (선택사항)
 
+# 비디오 처리 설정
+video_processing:
+    enabled: true # 비디오 처리 활성화 여부
+
+    # 프레임 추출 및 샘플링 설정
+    frame_extraction:
+        library: "decord" # 비디오 로딩 라이브러리 (decord 권장)
+        sampling_strategy: "uniform" # 샘플링 전략 (uniform: 균등 샘플링)
+        num_frames: 8 # 추출할 프레임 수
+
+    # 비디오 파일 처리 설정
+    file_processing:
+        convert_to_rgb: true # RGB 변환 여부
+        max_duration: null # 최대 비디오 길이 (초, null=제한없음)
+
 # 텍스트 처리 설정
 text_processing:
     padding: true # 패딩 적용 여부
@@ -70,41 +85,3 @@ label_masking:
 batch_processing:
     return_tensors: "pt" # 반환할 텐서 타입
     padding_strategy: "longest" # 패딩 전략: longest, max_length
-
-# 특수 토큰 설정 (자동 감지 사용, 수동 설정 불필요)
-special_tokens:
-    # ✨ 새로운 자동 감지 시스템 ✨
-    # 이제 tokenizer.special_tokens_map과 additional_special_tokens에서
-    # 모든 특수 토큰을 자동으로 감지하므로 수동 설정이 불필요합니다!
-
-    # 🔧 기본 동작:
-    # - 패드, EOS, BOS 등 core 토큰들 자동 감지
-    # - 이미지, 비디오 등 VLM 관련 토큰들 자동 감지
-    # - apply_chat_template과 호환성 자동 검증
-    # - 손실 계산 시 자동 마스킹 적용
-
-    # 📝 Manual override (선택사항 - 고급 사용자용)
-    # 자동 감지가 실패하는 경우에만 아래 섹션을 활성화하세요
-    manual_tokens:
-        enabled: false # true로 변경시 수동 토큰 설정 활성화
-        tokens:
-            []
-            # 예시 (필요시에만 사용):
-            # - name: "custom_image_token"
-            #   token: "<custom_image>"
-            #   ignore_in_loss: true
-
-# 비디오 처리 설정
-video_processing:
-    enabled: true # 비디오 처리 활성화 여부
-
-    # 프레임 추출 및 샘플링 설정
-    frame_extraction:
-        library: "decord" # 비디오 로딩 라이브러리 (decord 권장)
-        sampling_strategy: "uniform" # 샘플링 전략 (uniform: 균등 샘플링)
-        num_frames: 8 # 추출할 프레임 수
-
-    # 비디오 파일 처리 설정
-    file_processing:
-        convert_to_rgb: true # RGB 변환 여부
-        max_duration: null # 최대 비디오 길이 (초, null=제한없음)

@@ -50,7 +50,7 @@ model_classes:
 
 # 기본 fallback 설정 (VLM용 AutoModel 사용)
 default_fallback:
-    model_class: "AutoModelForVision2Seq"
+    model_class: "AutoModelForImageTextToText"
     import_path: "transformers"
     # processor_class 미지정 -> AutoProcessor 사용
 
