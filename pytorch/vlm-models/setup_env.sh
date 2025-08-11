@@ -11,7 +11,7 @@ VFOLDER_NAME=$1
 # --------------------------------------------------------
 
 VENV_PATH="/pipeline/vfroot/.venv"
-REQUIREMENTS_PATH="${VFOLDER_NAME}/backend.ai-fasttrack-examples/pytorch/language-models/pipeline-code/requirements.txt"
+REQUIREMENTS_PATH="${VFOLDER_NAME}/backend.ai-fasttrack-examples/pytorch/vlm-models/pipeline-code/requirements.txt"
 
 echo "Using base path: $VFOLDER_NAME"
 
