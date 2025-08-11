@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 import yaml
 import importlib
-from transformers import AutoModelForCausalLM, AutoModelForVision2Seq, AutoProcessor, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoModelForVision2Seq, AutoProcessor, AutoTokenizer, AutoModelForImageTextToText
 
 def parse_args():
     parser = argparse.ArgumentParser(description="VLM Model Loader")
@@ -37,7 +37,7 @@ def get_model_classes(model_id: str, vlm_config: dict):
     if not vlm_config:
         # 기본 VLM Auto 클래스 사용
         return {
-            'model_class': AutoModelForVision2Seq,
+            'model_class': AutoModelForImageTextToText,
             'processor_class': AutoProcessor,
             'loading_params': {},
             'processor_params': {}
@@ -83,7 +83,7 @@ def get_model_classes(model_id: str, vlm_config: dict):
         print(f"⚠️ Failed to import classes: {e}")
         print("🔄 Falling back to VLM Auto classes")
         return {
-            'model_class': AutoModelForVision2Seq,
+            'model_class': AutoModelForImageTextToText,
             'processor_class': AutoProcessor,
             'loading_params': {},
             'processor_params': {}
@@ -91,10 +91,10 @@ def get_model_classes(model_id: str, vlm_config: dict):
 
 def load_model(model_id, model_class=None, loading_params=None):
     """
-    VLM 모델을 로드합니다. 설정된 클래스 또는 AutoModelForVision2Seq을 사용합니다.
+    VLM 모델을 로드합니다. 설정된 클래스 또는 AutoModelForImageTextToText을 사용합니다.
     """
     if model_class is None:
-        model_class = AutoModelForVision2Seq
+        model_class = AutoModelForImageTextToText
     
     if loading_params is None:
         loading_params = {}
