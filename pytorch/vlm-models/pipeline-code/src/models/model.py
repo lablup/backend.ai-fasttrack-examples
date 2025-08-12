@@ -89,162 +89,144 @@ def get_model_classes(model_id: str, vlm_config: dict):
             'processor_params': {}
         }
 
-def load_model(model_id, model_class=None, loading_params=None):
-    """
-    VLM 모델을 로드합니다. 설정된 클래스 또는 AutoModelForImageTextToText을 사용합니다.
+def load_model(model_source, model_class=None, loading_params=None):
+    """Load a VLM model from either a hub model id or a local path.
+
+    model_source: str | Path - hub id or filesystem directory containing config.json
+    model_class: class used for from_pretrained
+    loading_params: optional dict of extra kwargs (may include torch_dtype as string)
     """
     if model_class is None:
         model_class = AutoModelForImageTextToText
-    
     if loading_params is None:
         loading_params = {}
-    
+
+    model_source = str(model_source)
     try:
-        print(f"Loading VLM model: {model_id} using {model_class.__name__}")
-        
-        # 기본 로딩 파라미터 설정
+        print(f"Loading VLM model from '{model_source}' using {model_class.__name__}")
         default_params = {
             'device_map': "auto",
             'torch_dtype': torch.bfloat16,
             'token': os.getenv('HF_TOKEN')
         }
-        
-        # YAML 설정에서 torch_dtype 문자열을 실제 타입으로 변환
-        if 'torch_dtype' in loading_params:
+        # Convert dtype strings to actual torch dtypes
+        if 'torch_dtype' in loading_params and isinstance(loading_params['torch_dtype'], str):
             dtype_str = loading_params['torch_dtype']
-            if dtype_str == 'torch.bfloat16':
-                loading_params['torch_dtype'] = torch.bfloat16
-            elif dtype_str == 'torch.float16':
-                loading_params['torch_dtype'] = torch.float16
-            elif dtype_str == 'torch.float32':
-                loading_params['torch_dtype'] = torch.float32
-        
-        # 파라미터 병합 (YAML 설정이 기본값을 덮어씀)
+            mapping = {
+                'torch.bfloat16': torch.bfloat16,
+                'torch.float16': torch.float16,
+                'torch.float32': torch.float32,
+            }
+            loading_params['torch_dtype'] = mapping.get(dtype_str, loading_params['torch_dtype'])
         final_params = {**default_params, **loading_params}
-        
-        model = model_class.from_pretrained(model_id, **final_params)
-        print(f"✅ Successfully loaded VLM model: {model_id}")
+        model = model_class.from_pretrained(model_source, **final_params)
+        print(f"✅ Successfully loaded VLM model from: {model_source}")
         return model
-        
     except Exception as e:
-        print(f"❌ Error loading VLM model {model_id}: {e}")
+        print(f"❌ Error loading VLM model from {model_source}: {e}")
         return None
 
-def load_processor_and_tokenizer(model_id, processor_class=None, processor_params=None):
-    """
-    VLM 프로세서와 토크나이저를 로드합니다.
-    설정된 클래스 또는 AutoProcessor를 사용하며, VLM 모델에 최적화되어 있습니다.
-    
-    Returns:
-        tuple: (processor, tokenizer) where tokenizer is always accessible
+def load_processor_and_tokenizer(model_source, processor_class=None, processor_params=None):
+    """Load processor & tokenizer from a model id or local path, with fallback chain.
+
+    model_source: hub id or local path; for local merged models we first try that path.
+    Returns (processor, tokenizer) where either may be None.
     """
     if processor_class is None:
         processor_class = AutoProcessor
-        
     if processor_params is None:
         processor_params = {}
-    
-    # 기본 프로세서 파라미터
-    default_params = {
-        'token': os.getenv('HF_TOKEN')
-    }
-    
-    # 파라미터 병합 (processor_params가 기본값을 덮어씀)
+
+    model_source = str(model_source)
+    default_params = {'token': os.getenv('HF_TOKEN')}
     final_params = {**default_params, **processor_params}
-    
-    # 1차 시도: 설정된 Processor 클래스
+
+    # First attempt with provided processor_class
     try:
-        print(f"Loading VLM processor for model: {model_id} using {processor_class.__name__}")
-        processor = processor_class.from_pretrained(model_id, **final_params)
-        
-        # VLM 모델의 경우 processor.tokenizer 속성이 존재
+        print(f"Loading processor from '{model_source}' using {processor_class.__name__}")
+        processor = processor_class.from_pretrained(model_source, **final_params)
         try:
             tokenizer = processor.tokenizer
-            print("✅ VLM model detected. Extracted tokenizer from processor.")
-            
-            # 비디오 프로세서 관련 정보 제공 (경고 억제 없이)
-            if hasattr(processor, 'video_processor') or 'video' in str(type(processor)).lower():
-                print("📹 Video processor detected.")
-                print("ℹ️  Note: Video processor deprecation warnings are normal and handled automatically.")
-                print("   Files are auto-renamed from preprocessor.json to video_preprocessor.json when saved.")
-            
-            return processor, tokenizer
         except AttributeError:
-            # 일부 VLM 모델에서는 processor 자체가 tokenizer 기능을 포함
-            print("✅ VLM processor with integrated tokenizer detected.")
-            return processor, processor
-            
+            tokenizer = processor
+        print("✅ Processor loaded successfully")
+        return processor, tokenizer
     except Exception as e:
-        print(f"⚠️ {processor_class.__name__} loading failed: {e}")
-        print("🔄 Falling back to AutoProcessor...")
-        
-        # 2차 시도: AutoProcessor (fallback)
+        print(f"⚠️ Primary processor load failed: {e}")
+
+    # Fallback to AutoProcessor
+    try:
+        print("🔄 Falling back to AutoProcessor")
+        processor = AutoProcessor.from_pretrained(model_source, **final_params)
         try:
-            processor = AutoProcessor.from_pretrained(model_id, **final_params)
-            
-            try:
-                tokenizer = processor.tokenizer
-                print("✅ AutoProcessor fallback successful. Extracted tokenizer.")
-                return processor, tokenizer
-            except AttributeError:
-                print("✅ AutoProcessor fallback successful. Using processor as tokenizer.")
-                return processor, processor
-                
-        except Exception as processor_error:
-            print(f"⚠️ AutoProcessor fallback failed: {processor_error}")
-            print("🔄 Trying AutoTokenizer as last resort...")
-            
-            # 3차 시도: AutoTokenizer (최후의 수단)
-            try:
-                tokenizer = AutoTokenizer.from_pretrained(model_id, token=os.getenv('HF_TOKEN'))
-                print("✅ AutoTokenizer loaded successfully (no processor available).")
-                return None, tokenizer
-                
-            except Exception as tokenizer_error:
-                print(f"❌ All loading attempts failed. AutoTokenizer error: {tokenizer_error}")
-                return None, None
+            tokenizer = processor.tokenizer
+        except AttributeError:
+            tokenizer = processor
+        print("✅ AutoProcessor fallback successful")
+        return processor, tokenizer
+    except Exception as e:
+        print(f"⚠️ AutoProcessor fallback failed: {e}")
+
+    # Final fallback AutoTokenizer
+    try:
+        print("🔄 Trying AutoTokenizer as last resort")
+        tokenizer = AutoTokenizer.from_pretrained(model_source, token=os.getenv('HF_TOKEN'))
+        print("✅ AutoTokenizer loaded (no processor)")
+        return None, tokenizer
+    except Exception as e:
+        print(f"❌ All processor/tokenizer loading attempts failed: {e}")
+        return None, None
 
 class ModelLoader:
-    def __init__(self, model_id, vlm_config_path='vlm_model_config.yaml'):
+    def __init__(self, model_id, vlm_config_path='vlm_model_config.yaml', model_load_path: str | Path | None = None, processor_load_path: str | Path | None = None):
+        """Unified loader for VLM models.
+
+        model_id: hub identifier used for config mapping & default loading.
+        model_load_path: optional local directory (merged fine-tuned model). If provided, model weights
+                         are loaded from this path but configuration mapping still uses model_id.
+        processor_load_path: optional separate local directory for processor/tokenizer.
+        """
         self.model_id = model_id
+        self.model_load_path = Path(model_load_path) if model_load_path else None
+        self.processor_load_path = Path(processor_load_path) if processor_load_path else None
         self.model = None
         self.processor = None
         self.tokenizer = None
         self.vlm_config = None
 
-        if self.model_id:
-            # VLM 설정 로드
-            self.vlm_config = load_vlm_config(vlm_config_path)
-            
-            # 모델별 클래스 설정 가져오기
-            class_config = get_model_classes(self.model_id, self.vlm_config)
-            
-            # 모델 로드
-            self.model = load_model(
-                self.model_id, 
-                class_config['model_class'],
-                class_config['loading_params']
-            )
-            
-            # 프로세서와 토크나이저 로드
-            self.processor, self.tokenizer = load_processor_and_tokenizer(
-                self.model_id,
-                class_config['processor_class'],
-                class_config['processor_params']
-            )
-
-            if not self.tokenizer:
-                print(f"❌ Failed to load tokenizer for VLM model {self.model_id}")
-            elif not self.model:
-                print(f"❌ Failed to load VLM model {self.model_id}")
-            else:
-                # VLM 토크나이저 기본 설정
-                if hasattr(self.tokenizer, 'padding_side'):
-                    self.tokenizer.padding_side = "left"
-                print(f"✅ Successfully loaded VLM model and processor for {self.model_id}")
-                
-                # processor가 없어도 tokenizer가 있으면 경고만 출력
-                if not self.processor:
-                    print("⚠️ Processor not available for this VLM model, using tokenizer only")
-        else:
+        if not self.model_id:
             print("❌ Model ID is not provided. Please set the MODEL_ID environment variable.")
+            return
+
+        # Load config & class mapping based on hub model_id
+        self.vlm_config = load_vlm_config(vlm_config_path)
+        class_config = get_model_classes(self.model_id, self.vlm_config)
+
+        # Decide sources
+        model_source = self.model_load_path if (self.model_load_path and (self.model_load_path / 'config.json').exists()) else self.model_id
+        processor_source = self.processor_load_path if (self.processor_load_path and (self.processor_load_path / 'preprocessor_config.json').exists() or (self.processor_load_path and (self.processor_load_path / 'tokenizer_config.json').exists())) else model_source
+
+        # Load model
+        self.model = load_model(
+            model_source,
+            class_config['model_class'],
+            class_config['loading_params']
+        )
+
+        # Load processor/tokenizer
+        self.processor, self.tokenizer = load_processor_and_tokenizer(
+            processor_source,
+            class_config['processor_class'],
+            class_config['processor_params']
+        )
+
+        if not self.tokenizer:
+            print(f"❌ Failed to load tokenizer for VLM model {self.model_id}")
+        elif not self.model:
+            print(f"❌ Failed to load VLM model from {model_source}")
+        else:
+            if hasattr(self.tokenizer, 'padding_side'):
+                self.tokenizer.padding_side = "left"
+            print(f"✅ Loaded model (source='{model_source}') for id '{self.model_id}'")
+            if not self.processor:
+                print("⚠️ Processor missing; tokenizer-only mode")

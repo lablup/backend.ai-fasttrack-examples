@@ -19,10 +19,12 @@ message_format:
 
     # 학습용 메시지 구조 (user + assistant)
     training_messages:
-        - role: "user"
+        - role: "system"
           content:
               - type: "text"
                 text: "{system_prompt}"
+        - role: "user"
+          content:
               - type: "image"
               - type: "text"
                 text: "{question}"
@@ -33,10 +35,12 @@ message_format:
 
     # 평가용 메시지 구조 (user만, generation_prompt=True)
     evaluation_messages:
-        - role: "user"
+        - role: "system"
           content:
               - type: "text"
                 text: "{system_prompt}"
+        - role: "user"
+          content:
               - type: "image"
               - type: "text"
                 text: "{question}"

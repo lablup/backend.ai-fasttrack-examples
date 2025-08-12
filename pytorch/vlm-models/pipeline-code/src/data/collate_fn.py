@@ -382,29 +382,42 @@ class VLMDataCollator:
         return messages
     
     def _build_messages_with_visuals(self, base_messages: list, visuals_count: int, timestamps: Optional[List[Optional[float]]]) -> list:
-        """시각 데이터(다중 이미지/프레임)에 맞춰 메시지에 이미지와 타임스탬프 텍스트를 동적으로 추가합니다."""
-        messages = []
+        """Inject visuals for user messages: visuals first, then all user text.
+        """
+        updated: List[Dict[str, Any]] = []
         for msg in base_messages:
-            msg_copy = {"role": msg["role"], "content": []}
-            # 기존 텍스트들은 그대로 복사
-            for item in msg["content"]:
-                if item.get("type") == "text":
-                    msg_copy["content"].append({"type": "text", "text": item.get("text", "")})
-            # user 메시지에만 이미지와 프레임 텍스트를 삽입
-            if msg_copy["role"] == "user" and visuals_count > 0:
-                for i in range(visuals_count):
-                    ts = None
-                    if timestamps is not None and i < len(timestamps):
-                        ts = timestamps[i]
-                    # 프레임/이미지 설명 텍스트
-                    if ts is not None:
-                        label = f"Frame {i+1} (t={ts:.2f}s):"
-                    else:
-                        label = f"Image {i+1}:"
-                    msg_copy["content"].append({"type": "text", "text": label})
-                    msg_copy["content"].append({"type": "image"})
-            messages.append(msg_copy)
-        return messages
+            role = msg.get('role')
+            contents = msg.get('content', []) or []
+
+            # Non-user: copy as-is
+            if role != 'user' or visuals_count <= 0:
+                updated.append({'role': role, 'content': [c.copy() if isinstance(c, dict) else c for c in contents]})
+                continue
+
+            # Collect text segments (ignore any pre-existing image placeholders)
+            text_segments: List[Dict[str, Any]] = [
+                {'type': 'text', 'text': c.get('text', '')}
+                for c in contents
+                if isinstance(c, dict) and c.get('type') == 'text'
+            ]
+
+            # Build new content: visuals first
+            new_content: List[Dict[str, Any]] = []
+            for i in range(visuals_count):
+                ts = None
+                if timestamps is not None and i < len(timestamps):
+                    ts = timestamps[i]
+
+                label = f"Frame {i+1} (t={ts:.2f}s):" if ts is not None else f"Image {i+1}:"
+                new_content.append({"type" : "text", "text" : label})
+                new_content.append({"type": "image"})
+
+            # Then append all original user text segments (order preserved)
+            new_content.extend(text_segments)
+
+            updated.append({'role': 'user', 'content': new_content})
+
+        return updated
 
     def __call__(self, examples: List[Dict[str, Any]], is_training: bool = True) -> Dict[str, torch.Tensor]:
         """
