@@ -36,11 +36,12 @@ model_classes:
         import_path: "transformers"
         # processor_class 미지정 -> AutoProcessor 사용
 
-    # PaliGemma 모델들 (특수 processor 필요)
-    "google/paligemma-3b-pt-448":
-        model_class: "PaliGemmaForConditionalGeneration"
-        processor_class: "PaliGemmaProcessor" # 특수 processor 명시적 지정
-        import_path: "transformers"
+    # # PaliGemma 모델들 (특수 processor 필요)
+    # "google/paligemma2-3b-pt-224":
+    #     model_class: "PaliGemmaForConditionalGeneration"
+    #     # processor_class: "PaliGemmaProcessor" # 특수 processor 명시적 지정
+    #     import_path: "transformers"
+    # -> processor에서  apply_chat_template 사용 불가능
 
     # Phi-3-Vision 모델들 (AutoProcessor 사용)
     "microsoft/Phi-3-vision-128k-instruct":

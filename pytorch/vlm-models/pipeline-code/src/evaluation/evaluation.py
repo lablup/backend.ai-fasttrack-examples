@@ -18,6 +18,7 @@ import torch
 from tqdm import tqdm
 from datasets import load_from_disk, Dataset
 import evaluate
+from transformers import GenerationConfig
 
 from src.models.model import ModelLoader
 from src.data.collate_fn import create_vlm_collator
@@ -30,7 +31,8 @@ def parse_args():
                    help='Base model id or local path')
     p.add_argument('--output_path', type=str, default='evaluation_results.json', help='Where to write JSON results')
     p.add_argument('--max_samples', type=int, default=None, help='Limit number of samples (debug)')
-    p.add_argument('--batch_size', type=int, default=os.getenv('EVAL_BATCH_SIZE ',8), help='Generation batch size')
+    # Fix: remove stray space in env var name; fallback to 8
+    p.add_argument('--batch_size', type=int, default=int(os.getenv('EVAL_BATCH_SIZE', 8)), help='Generation batch size')
     p.add_argument('--max_new_tokens', type=int, default=512, help='Max new tokens to generate')
     p.add_argument('--use_adapter', action='store_true', help='Load fine-tuned adapter / merged model if available')
     return p.parse_args()
@@ -91,9 +93,39 @@ def compute_metrics(preds: List[str], refs: List[str]) -> Dict[str, Any]:
     # BERTScore (fixed model)
     try:
         bs_metric = evaluate.load('bertscore')
-        bs = bs_metric.compute(predictions=preds, references=refs, model_type='BAAI/bge-m3')
+        # Preferred model (env override supported), then fallback to a widely supported checkpoint
+        preferred = os.getenv('BERTSCORE_MODEL', 'BAAI/bge-m3')
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        used_model = None
+
+        def _run(model_type: str):
+            return bs_metric.compute(
+                predictions=preds,
+                references=refs,
+                model_type=model_type,
+                device=device,
+                # Avoid baselines unless specifically needed
+                rescale_with_baseline=False,
+            )
+
+        try:
+            bs = _run(preferred)
+            used_model = preferred
+        except Exception:
+            # Fallback to a stable, supported model
+            for alt in ('roberta-large', 'microsoft/deberta-large-mnli'):
+                try:
+                    bs = _run(alt)
+                    used_model = alt
+                    break
+                except Exception:
+                    continue
+            else:
+                raise RuntimeError(f"All BERTScore model attempts failed (preferred={preferred})")
+
         if 'f1' in bs and bs['f1']:
             metrics['bertscore_f1'] = float(sum(bs['f1']) / len(bs['f1']))
+            metrics['bertscore_model_used'] = used_model
     except Exception as e:
         metrics['bertscore_error'] = str(e)
     return metrics
@@ -140,6 +172,36 @@ def main():  # noqa: C901 (kept simple & linear intentionally)
     ans_col = collator.dataset_columns.get('answer_column', 'answer')
     tokenizer = getattr(processor, 'tokenizer', processor)
 
+    # Prepare an explicit generation config derived from model defaults
+    try:
+        base_cfg = getattr(model, 'generation_config', None)
+        if base_cfg is not None:
+            gen_cfg = base_cfg.clone()
+        else:
+            gen_cfg = GenerationConfig.from_model_config(getattr(model, 'config', None))
+    except Exception:
+        gen_cfg = GenerationConfig()
+
+    # Force greedy decoding only (no sampling), but avoid hardcoding other sampling params
+    gen_cfg.do_sample = False
+    gen_cfg.max_new_tokens = int(args.max_new_tokens)
+    # Ensure special token ids are set to prevent warnings and pad issues
+    try:
+        if getattr(tokenizer, 'eos_token_id', None) is not None:
+            gen_cfg.eos_token_id = tokenizer.eos_token_id
+        if getattr(tokenizer, 'pad_token_id', None) is not None:
+            gen_cfg.pad_token_id = tokenizer.pad_token_id
+        elif getattr(tokenizer, 'eos_token_id', None) is not None:
+            # fall back to eos when pad missing (common in chat models)
+            gen_cfg.pad_token_id = tokenizer.eos_token_id
+    except Exception:
+        pass
+    # Attach to model to override any merged generation_config.json defaults
+    try:
+        model.generation_config = gen_cfg
+    except Exception:
+        pass
+
     device = getattr(model, 'device', torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     model.to(device)
 
@@ -160,10 +222,22 @@ def main():  # noqa: C901 (kept simple & linear intentionally)
             prompts.extend([''] * len(batch_examples))
         batch_inputs = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in batch_inputs.items()}
         with torch.no_grad():
-            gen_allowed = {'input_ids', 'attention_mask', 'pixel_values', 'images', 'pixel_values_videos'}
-            gen_in = {k: v for k, v in batch_inputs.items() if k in gen_allowed}
-            out_ids = model.generate(**gen_in, max_new_tokens=args.max_new_tokens, do_sample=False)
+            # Pass through all non-None inputs from processor; some VLMs require
+            # additional keys (e.g., image grid/timestamps). Exclude None to avoid
+            # internal iterations over None (which cause 'NoneType is not iterable').
+            gen_in = {k: v for k, v in batch_inputs.items() if v is not None}
+            # Optional compact debug of key types/shapes
+            try:
+                dbg = {k: (type(v).__name__, getattr(v, 'shape', getattr(v, 'size', None))) for k, v in gen_in.items()}
+            except Exception:
+                print(f"Generation inputs keys: {list(gen_in.keys())}")
+            
+            # print(f"Generation input debug: {dbg}")
+            out_ids = model.generate(**gen_in, generation_config=gen_cfg)
+            
+            # print(f"Generated output IDs shape: {out_ids.shape}")
             decoded = tokenizer.batch_decode(out_ids, skip_special_tokens=True)
+            
             preds.extend(decoded)
 
     # Align lengths
@@ -201,7 +275,7 @@ def main():  # noqa: C901 (kept simple & linear intentionally)
         }
     }
 
-    out_path = Path(args.output_path)
+    out_path = Path(settings.evaluation_output_path / args.output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)

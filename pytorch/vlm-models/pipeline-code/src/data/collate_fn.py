@@ -11,6 +11,7 @@ import torch
 from pathlib import Path
 from PIL import Image
 from typing import List, Dict, Any, Optional, Union, Tuple
+from collections import defaultdict
 
 # 비디오 처리를 위한 선택적 import
 try:
@@ -321,64 +322,57 @@ class VLMDataCollator:
             return None
     
     def _format_messages(self, example: dict, is_training: bool = True) -> list:
-        """기본 텍스트만을 포함하는 메시지를 생성합니다 (이미지 자리표시자 제외)."""
-        # 컬럼명 매핑
-        image_col = self.dataset_columns.get('image_column', 'image')
-        question_col = self.dataset_columns.get('question_column', 'question')
-        answer_col = self.dataset_columns.get('answer_column', 'answer')
-        
-        # 데이터 추출
-        question = example.get(question_col, '')
-        # evaluation 시에도 answer 정보는 유지 (참조용)
-        answer = example.get(answer_col, '')
-        
-        # 시스템 프롬프트
-        system_prompt = self.message_format.get('system_prompt', 'Answer briefly.')
-        
-        # 메시지 템플릿 선택
-        if is_training:
-            messages_template = self.message_format.get('training_messages', [])
-        else:
-            # evaluation용 - answer는 포함하지 않지만 question까지만 처리
-            messages_template = self.message_format.get('evaluation_messages', [])
-        
-        # 템플릿에 데이터 채우기
-        messages = []
+        """메시지 텍스트에 사용할 포맷 변수를 dataset_columns 전체로 일반화합니다.
+
+        - vlm_collator_config.yaml 의 dataset_columns 딕셔너리의 key들을 변수명으로 사용합니다.
+        - 각 key에 매핑된 실제 컬럼명(값)으로부터 example에서 데이터를 일괄 추출하여 포맷 컨텍스트를 구성합니다.
+        - key가 *_column 으로 끝나면, 접미사를 제거한 별칭(예: question_column -> question)도 함께 제공합니다.
+        - system_prompt도 포맷 컨텍스트에 포함합니다.
+        """
+        # 1) 포맷 컨텍스트 구성
+        format_ctx: Dict[str, Any] = {}
+        # 시스템 프롬프트 포함
+        format_ctx['system_prompt'] = self.message_format.get('system_prompt', 'Answer briefly.')
+
+        # dataset_columns의 모든 키를 변수로 노출하고 example에서 값 추출
+        for key, col_name in (self.dataset_columns or {}).items():
+            if col_name is None:
+                value = ''
+            else:
+                value = example.get(col_name, '')
+            format_ctx[key] = value
+            # *_column 별칭 제공 (message 템플릿에서 간결한 이름을 사용할 수 있도록)
+            if key.endswith('_column'):
+                base_key = key[:-7]  # remove '_column'
+                if base_key and base_key not in format_ctx:
+                    format_ctx[base_key] = value
+
+        # 2) 메시지 템플릿 선택
+        messages_template = (
+            self.message_format.get('training_messages', []) if is_training
+            else self.message_format.get('evaluation_messages', [])
+        )
+
+        # 3) 템플릿 렌더링 (이미지 placeholder는 무시; 이후 비주얼 주입 단계에서 처리)
+        messages: List[Dict[str, Any]] = []
+        safe_ctx = defaultdict(lambda: '', format_ctx)
         for msg_template in messages_template:
-            message = {
-                'role': msg_template['role'],
-                'content': []
-            }
-            
-            for content_item in msg_template['content']:
-                if content_item['type'] == 'text':
-                    # evaluation 모드에서는 answer를 포함하지 않는 템플릿 사용
-                    if is_training:
-                        text = content_item['text'].format(
-                            system_prompt=system_prompt,
-                            question=question,
-                            answer=answer
-                        )
-                    else:
-                        # evaluation에서는 answer 부분을 비워두거나 질문까지만 포함
-                        text = content_item['text'].format(
-                            system_prompt=system_prompt,
-                            question=question,
-                            answer=""  # evaluation 시에는 답변 부분을 비움
-                        )
-                    message['content'].append({
-                        'type': 'text',
-                        'text': text
-                    })
-                # 템플릿에 포함된 고정 'image' 항목은 무시하고, 실제 비주얼 데이터에 맞춰 동적으로 추가합니다.
-                elif content_item['type'] == 'image':
+            message = {'role': msg_template['role'], 'content': []}
+            for content_item in msg_template.get('content', []) or []:
+                if content_item.get('type') == 'text':
+                    try:
+                        text = content_item['text'].format_map(safe_ctx)
+                    except Exception:
+                        # 형식 오류 시 원문 유지 + 최소한의 안전 장치
+                        text = str(content_item.get('text', ''))
+                    message['content'].append({'type': 'text', 'text': text})
+                elif content_item.get('type') == 'image':
+                    # 고정 이미지 placeholder는 여기서 무시 (실제 이미지는 _build_messages_with_visuals에서 주입)
                     continue
                 else:
-                    # 다른 타입들 (비디오 등) 지원
                     message['content'].append(content_item.copy())
-            
             messages.append(message)
-        
+
         return messages
     
     def _build_messages_with_visuals(self, base_messages: list, visuals_count: int, timestamps: Optional[List[Optional[float]]]) -> list:

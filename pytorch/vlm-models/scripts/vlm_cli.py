@@ -42,6 +42,7 @@ def evaluate_base_model():
             'src/evaluation/evaluation.py',
             '--model_name_or_path', os.getenv('MODEL_ID'),
             '--output_path', 'base_model_evaluation.json',
+            '--max_samples', '8'  # 디버그용 샘플 제한
             ]
         evaluation_main()
         sys.argv = original_sys_argv
@@ -80,7 +81,8 @@ def evaluate_finetuned_vlm_model():
             'src/evaluation/evaluation.py',
             '--model_name_or_path', os.getenv('MODEL_ID'),
             '--output_path', 'finetuned_model_evaluation.json',
-            '--use_adapter'
+            '--use_adapter',
+            '--max_samples', '8'  # 디버그용 샘플 제한
             ]
         evaluation_main()
         sys.argv = original_sys_argv

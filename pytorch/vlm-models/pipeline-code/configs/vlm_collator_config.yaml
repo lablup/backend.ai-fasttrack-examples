@@ -4,9 +4,11 @@
 # 데이터셋별 컬럼 매핑
 dataset_columns:
     # 기본 VQA 데이터셋 구조
+    category_column: "Category" # 카테고리 컬럼명 (새로 추가
+    answer_column: "description" # 답변 컬럼명
     image_column: "image" # 이미지 컬럼명
     question_column: "question" # 질문 컬럼명
-    answer_column: "multiple_choice_answer" # 답변 컬럼명
+    product_name_column: "Product Name" # 제품명 컬럼명 (새로 추가)
 
     # 추가 컬럼들 (선택사항)
     context_column: null # 컨텍스트 정보
@@ -15,7 +17,7 @@ dataset_columns:
 
 # 메시지 포맷 템플릿
 message_format:
-    system_prompt: "Answer briefly."
+    system_prompt: "You are an expert product description writer for Amazon."
 
     # 학습용 메시지 구조 (user + assistant)
     training_messages:
@@ -27,7 +29,7 @@ message_format:
           content:
               - type: "image"
               - type: "text"
-                text: "{question}"
+                text: "Create a Short Product description based on the provided ##PRODUCT NAME## and ##CATEGORY## and image. Only return description.\nThe description should be SEO optimized and for a better mobile search experience.\n##PRODUCT NAME##: {product_name}\n##CATEGORY##: {category}"
         - role: "assistant"
           content:
               - type: "text"
@@ -43,7 +45,7 @@ message_format:
           content:
               - type: "image"
               - type: "text"
-                text: "{question}"
+                text: "{answer}"
 
 # 데이터 타입별 처리 활성화 설정
 data_processing:

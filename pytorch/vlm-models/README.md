@@ -75,7 +75,7 @@ pip install -r requirements.txt
 #### 모델별 클래스 설정
 
 `configs/vlm_model_config.yaml`에서 모델별 클래스를 설정할 수 있습니다:
-
+**주의!! 이때, 각 모델에서 사용하는 processor는 apply_chat_template을 사용할 수 있어야 합니다.**
 ```yaml
 model_classes:
     "Qwen/Qwen2-VL-2B-Instruct":
@@ -87,6 +87,9 @@ model_classes:
 #### 데이터 콜레이터 설정
 
 `configs/vlm_collator_config.yaml`에서 다양한 VQA 데이터셋에 맞게 설정할 수 있습니다:
+`dataset_columns`의 key 값은 message_format 안에서 매핑될 변수의 이름이 됩니다(별칭으로 뒤 _columns는 제외해도 됩니다.)
+예를 들어, 'question_column'이 `dataset_columns`의 key 값이라면 해당 값이 message_format에서 'question' 혹은 'question_column'으로 변수가 매핑되어야 합니다.
+**주의!! role : "assistant"에게 매핑되는 데이터의 key 값은 반드시 answer_column으로 해야 합니다.**
 
 ```yaml
 dataset_columns:
