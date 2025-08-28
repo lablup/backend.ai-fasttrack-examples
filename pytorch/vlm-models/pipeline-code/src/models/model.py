@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 import yaml
 import importlib
-from transformers import AutoModelForCausalLM, AutoModelForVision2Seq, AutoProcessor, AutoTokenizer, AutoModelForImageTextToText
+from transformers import AutoModelForCausalLM, AutoModelForVision2Seq, AutoProcessor, AutoTokenizer, AutoModelForImageTextToText 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="VLM Model Loader")

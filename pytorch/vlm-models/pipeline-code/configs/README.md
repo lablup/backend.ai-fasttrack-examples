@@ -11,11 +11,6 @@
 -   **`train_config.yaml`**: 훈련 파라미터 설정
 -   **`peft_config.yaml`**: LoRA 등 PEFT 설정
 
-### 레거시 설정 파일들 (참고용)
-
--   **`messages_format.yaml`**: 일반 언어 모델용 메시지 포맷 (참고용)
--   **`my_messages_format.yaml`**: 사용자 정의 예시 (참고용)
-
 ---
 
 ## 🚀 빠른 시작 가이드
@@ -138,6 +133,7 @@ print("Sample data:", dataset["train"][0])
 ```
 
 **컬럼 매핑 설정:**
+**주의 : dataset_columns의 key 값인 image_column, question_column, answer_column 등은 아래 message format에서 사용되는 변수의 이름과 동일하게 설정해야 합니다.**
 
 ```yaml
 dataset_columns:
@@ -187,6 +183,8 @@ data_processing:
 
 ### 메시지 포맷 설정
 
+**사용하는 변수의 이름은 dataset_columns에서 정의한 key 값과 매핑되어야 합니다.**
+
 ```yaml
 message_format:
     system_prompt: "Answer briefly." # 시스템 프롬프트
@@ -199,11 +197,11 @@ message_format:
                 text: "{system_prompt}"
               - type: "image" # 이미지 플레이스홀더
               - type: "text"
-                text: "{question}"
+                text: "{question_column}"
         - role: "assistant"
           content:
               - type: "text"
-                text: "{answer}"
+                text: "{answer_column}"
 ```
 
 ### 이미지 전처리 설정

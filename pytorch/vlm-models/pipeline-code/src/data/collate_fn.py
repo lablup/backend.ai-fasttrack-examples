@@ -84,10 +84,11 @@ class VLMDataCollator:
 
         # 간단화: 모든 special id를 무시 대상에 추가
         self.ignore_in_loss_ids.update(all_ids)
-
+        print(f"special token ids : {self.ignore_in_loss_ids}  will be ignored in loss.")
         # 선택적으로 이름 매핑(로깅용) 채우기
         try:
             special_map = getattr(tokenizer, 'special_tokens_map', {}) or {}
+            print(f"special_tokens_map: {special_map}")
             for k, tok in special_map.items():
                 if k == 'additional_special_tokens':
                     # list 처리
@@ -101,6 +102,7 @@ class VLMDataCollator:
                             self.special_token_ids[f"{k}_{i}"] = s
                     elif sid is not None:
                         self.special_token_ids[k] = sid
+            print(f"special_token_ids detected: {self.special_token_ids}")
         except Exception:
             pass
 
@@ -478,9 +480,12 @@ class VLMDataCollator:
             messages = self._build_messages_with_visuals(base_messages, len(visuals_images), frame_timestamps)
 
             try:
+                # Generation prompt 정책:
+                # - 학습(is_training=True): 마지막 assistant 응답이 이미 messages에 포함되어 있으므로 False
+                # - 평가(is_training=False): 모델이 응답을 생성하도록 assistant 시작 프롬프트가 필요하므로 True
                 text = self.processor.apply_chat_template(
                     messages,
-                    add_generation_prompt=self.text_processing.get('add_generation_prompt', False),
+                    add_generation_prompt=(not is_training),
                     tokenize=False
                 )
                 texts.append(text.strip())
@@ -513,23 +518,81 @@ class VLMDataCollator:
                 max_length=self.text_processing.get('max_length', 2048)
             )
         if is_training:
-            # 6. 레이블 생성 및 마스킹 (일반화된 버전)
+            # 6. 레이블 생성 및 마스킹
+            # 목표: assistant 응답 토큰만 supervised signal을 주고,
+            # system/user(프롬프트) 부분은 -100으로 마스킹
             labels = batch["input_ids"].clone()
             ignore_index = self.label_masking.get('ignore_index', -100)
 
-            # 미리 계산된 ignore_in_loss_ids 집합을 사용하여 한 번에 마스킹
+            # 우선 특수 토큰은 항상 무시
             if self.ignore_in_loss_ids:
-                # boolean 마스크 생성: labels 텐서의 각 요소가 무시할 ID 집합에 속하는지 확인
-                mask = torch.isin(labels, torch.tensor(list(self.ignore_in_loss_ids), device=labels.device))
-                # 마스크가 True인 위치의 값을 ignore_index로 변경
-                labels[mask] = ignore_index
+                # print(f"{len(self.ignore_in_loss_ids)} special token ids will be ignored in loss.")
+                ignore_ids = sorted({int(i) for i in self.ignore_in_loss_ids if isinstance(i, (int,))})
+                
+                ids_tensor = torch.tensor(ignore_ids, dtype=labels.dtype, device=labels.device)
+                mask_special = torch.isin(labels, ids_tensor)
+                masked_count = int(mask_special.sum().item())
+                # print(f"🔍 Masking {masked_count} special tokens in labels (from {len(ignore_ids)} ids)")
+                if masked_count:
+                    total = int(labels.numel())
+                    # print(f"   -> {masked_count}/{total} tokens ({100.0 * masked_count / total:.2f}%) will be ignored in loss")
+                    # If nearly all tokens are considered special, it's likely wrong; skip to be safe
+                    labels[mask_special] = ignore_index
 
-            # (선택적) 추가 마스킹 로직
-            # 프롬프트 부분 마스킹이 필요한 경우 여기에 추가할 수 있습니다.
-            # 예: assistant 응답 시작 전까지의 모든 토큰을 마스킹
-            if self.label_masking.get('mask_input_tokens', False):
-                # 이 부분은 모델별 chat template에 따라 다르게 구현될 수 있습니다.
-                print("💡 Input token masking is enabled but not implemented yet.")
+            # 응답 시작 위치 기반 마스킹: 문자열 기준으로 answer 텍스트 시작 지점을 찾아 토큰 오프셋과 정렬
+            if self.label_masking.get('mask_input_tokens', True):
+                try:
+                    tokenizer = getattr(self.processor, 'tokenizer', self.processor)
+                    answer_col = self.dataset_columns.get('answer_column', 'answer')
+                    answers: List[str] = []
+                    answer_starts: List[int] = []
+                    for ex, txt in zip(examples, texts):
+                        ans = ex.get(answer_col, '')
+                        ans = '' if ans is None else str(ans)
+                        answers.append(ans)
+                        # 답변 문자열이 템플릿 내 어디서 시작하는지 찾음 (없으면 -1)
+                        try:
+                            start_idx = txt.rfind(ans) if ans else -1
+                        except Exception:
+                            start_idx = -1
+                        answer_starts.append(start_idx)
+
+                    # offsets를 얻기 위해 동일한 텍스트에 대해 토크나이저를 한 번 더 호출
+                    tok_out = tokenizer(
+                        texts,
+                        return_offsets_mapping=True,
+                        padding=self.text_processing.get('padding', True),
+                        truncation=self.text_processing.get('truncation', True),
+                        max_length=self.text_processing.get('max_length', 2048),
+                        add_special_tokens=True
+                    )
+                    offsets = tok_out.get('offset_mapping')
+
+                    if offsets is not None:
+                        # 배치 차원 정렬 확인 (패딩으로 길이 통일되었음)
+                        for i in range(labels.size(0)):
+                            ans_start = answer_starts[i]
+                            if ans_start is None or ans_start < 0:
+                                # 답변 위치를 찾지 못한 경우: 프롬프트 마스킹을 적용하지 않고 특수 토큰만 무시
+                                continue
+                            seq_offsets = offsets[i]
+                            # offsets 길이가 labels 길이와 동일해야 함
+                            L = min(len(seq_offsets), labels.size(1))
+                            for j in range(L):
+                                # (start, end) = (0, 0)인 토큰은 보통 special
+                                st, ed = seq_offsets[j]
+                                # 답변 시작 이전(end <= ans_start)인 토큰은 프롬프트로 간주하고 마스킹
+                                if ed <= ans_start:
+                                    labels[i, j] = ignore_index
+                    else:
+                        print("⚠️ Token offsets not available; skipping prompt masking (only special tokens masked)")
+                except Exception as e:
+                    print(f"⚠️ Prompt masking failed: {e}; falling back to special-token-only masking")
+
+            # # 선택적 추가 마스킹 옵션(유지)
+            # if self.label_masking.get('mask_input_tokens', False):
+            #     # 이미 위에서 프롬프트 마스킹을 수행하므로 별도 동작 불필요
+            #     pass
 
             batch["labels"] = labels
 

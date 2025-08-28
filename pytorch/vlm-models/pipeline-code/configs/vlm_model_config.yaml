@@ -8,6 +8,12 @@
 
 # 모델별 클래스 매핑
 model_classes:
+    # SmolVLM 모델들 (특수 processor 필요)
+    "HuggingFaceTB/SmolVLM-Base":
+        model_class: "Idefics3ForConditionalGeneration"
+        # processor_class: "Idefics3Processor" # 특수 processor 명시적 지정
+        import_path: "transformers"
+
     # Qwen2-VL 모델들 (특수 processor 필요)
     "Qwen/Qwen2-VL-2B-Instruct":
         model_class: "Qwen2VLForConditionalGeneration"
@@ -18,36 +24,6 @@ model_classes:
         model_class: "Qwen2VLForConditionalGeneration"
         # processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
         import_path: "transformers"
-
-    # LLaVA 모델들 (AutoProcessor 사용)
-    "llava-hf/llava-1.5-7b-hf":
-        model_class: "LlavaForConditionalGeneration"
-        import_path: "transformers"
-        # processor_class 미지정 -> AutoProcessor 사용
-
-    "llava-hf/llava-1.5-13b-hf":
-        model_class: "LlavaForConditionalGeneration"
-        import_path: "transformers"
-        # processor_class 미지정 -> AutoProcessor 사용
-
-    # InternVL 모델들 (AutoProcessor 사용)
-    "OpenGVLab/InternVL2-2B":
-        model_class: "InternVLChatModel"
-        import_path: "transformers"
-        # processor_class 미지정 -> AutoProcessor 사용
-
-    # # PaliGemma 모델들 (특수 processor 필요)
-    # "google/paligemma2-3b-pt-224":
-    #     model_class: "PaliGemmaForConditionalGeneration"
-    #     # processor_class: "PaliGemmaProcessor" # 특수 processor 명시적 지정
-    #     import_path: "transformers"
-    # -> processor에서  apply_chat_template 사용 불가능
-
-    # Phi-3-Vision 모델들 (AutoProcessor 사용)
-    "microsoft/Phi-3-vision-128k-instruct":
-        model_class: "Phi3VForCausalLM"
-        import_path: "transformers"
-        # processor_class 미지정 -> AutoProcessor 사용
 
 # 기본 fallback 설정 (VLM용 AutoModel 사용)
 default_fallback:
