@@ -100,10 +100,12 @@ dataset_columns:
 message_format:
     system_prompt: "Answer briefly."
     training_messages:
-        - role: "user"
+        - role: "system"
           content:
               - type: "text"
                 text: "{system_prompt}"
+        - role: "user"
+          content:
               - type: "image"
               - type: "text"
                 text: "{question}"
@@ -112,6 +114,8 @@ message_format:
               - type: "text"
                 text: "{answer}"
 ```
+
+위 설정 중에서 -type: "image"에 해당하는 설정의 순서는 message_format에서 바꿔도 파인튜닝 과정 중에서 `role: "systme"`과 `role: "user"` 사이로 순서가 고정됩니다.
 
 ### VLM 파이프라인 실행
 

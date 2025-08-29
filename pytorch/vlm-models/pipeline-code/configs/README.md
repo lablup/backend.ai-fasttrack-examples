@@ -133,6 +133,9 @@ print("Sample data:", dataset["train"][0])
 ```
 
 **컬럼 매핑 설정:**
+아래 예시와 같이 사용할 허깅페이스의 dataset에 따라서 데이터의 column을 지정합니다.
+이때, 추후 evaluation 과정에 사용하기 위해서 key 값으로 answer_column은 반드시 지정해야 합니다.
+
 **주의 : dataset_columns의 key 값인 image_column, question_column, answer_column 등은 아래 message format에서 사용되는 변수의 이름과 동일하게 설정해야 합니다.**
 
 ```yaml
