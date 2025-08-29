@@ -3,20 +3,18 @@ import json
 import argparse
 import torch
 import sys
+import yaml
+import wandb
+
 from pathlib import Path
 from trl import SFTTrainer, SFTConfig
 from transformers import DataCollatorForLanguageModeling, TrainingArguments
 from datasets import DatasetDict, load_from_disk
 from peft import LoraConfig
 
-# # 프로젝트 루트를 sys.path에 추가
-# project_root = Path(__file__).parent.parent.parent
-# sys.path.insert(0, str(project_root))
 
 from src.models.model import ModelLoader
 from configs.settings import settings
-import yaml
-import wandb
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Trainer Configuration")
@@ -79,7 +77,6 @@ class CustomTrainer:
                 num_train_epochs=1.0,
                 logging_steps=0.2,
                 logging_strategy="steps",
-                # save_steps=1,
                 load_best_model_at_end = True,
                 metric_for_best_model = "eval_loss",  # 또는 사용하는 평가 메트릭
                 greater_is_better = False,  # loss의 경우 false, accuracy 등은 true
@@ -111,7 +108,6 @@ class CustomTrainer:
             eval_dataset=self.dataset['validation'],
             processing_class=tokenizer,
             peft_config=peft_config,
-            # data_collator=self.data_collator,
         )
         print("Starting training...")
         train_result = trainer.train()

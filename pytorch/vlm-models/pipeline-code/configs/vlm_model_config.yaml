@@ -1,0 +1,43 @@
+# VLM Model Configuration
+# 다양한 VLM 모델에 대한 클래스 매핑 설정
+#
+# 📝 Processor 설정 방식:
+# - processor_class가 지정되지 않으면 기본적으로 AutoProcessor 사용 (권장)
+# - 특수한 processor가 필요한 모델만 processor_class 명시적 지정
+# - 대부분의 VLM 모델은 AutoProcessor로 충분히 호환됩니다
+
+# 모델별 클래스 매핑
+model_classes:
+    # SmolVLM 모델들 (특수 processor 필요)
+    "HuggingFaceTB/SmolVLM-Base":
+        model_class: "Idefics3ForConditionalGeneration"
+        # processor_class: "Idefics3Processor" # 특수 processor 명시적 지정
+        import_path: "transformers"
+
+    # Qwen2-VL 모델들 (특수 processor 필요)
+    "Qwen/Qwen2-VL-2B-Instruct":
+        model_class: "Qwen2VLForConditionalGeneration"
+        # processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
+        import_path: "transformers"
+
+    "Qwen/Qwen2-VL-7B-Instruct":
+        model_class: "Qwen2VLForConditionalGeneration"
+        # processor_class: "Qwen2VLProcessor" # 특수 processor 명시적 지정
+        import_path: "transformers"
+
+# 기본 fallback 설정 (VLM용 AutoModel 사용)
+default_fallback:
+    model_class: "AutoModelForImageTextToText"
+    import_path: "transformers"
+    # processor_class 미지정 -> AutoProcessor 사용
+
+# 공통 로딩 파라미터
+loading_params:
+    torch_dtype: "torch.bfloat16"
+    device_map: "auto"
+    trust_remote_code: true
+
+# 프로세서 공통 설정
+processor_params:
+    trust_remote_code: true
+    use_fast: true # fast processor 지원 모델용 (Qwen2-VL, SmolVLM, GLM-4V, LLaVA 등)
