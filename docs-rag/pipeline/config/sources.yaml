@@ -1,0 +1,90 @@
+# Documentation sources — the single source of truth for what gets ingested.
+# Add or remove an entry here; no code changes are needed.
+#
+# Each entry produces:
+#   <data-root>/01_repos/<name>/     cloned repo          (node 01)
+#   <data-root>/02_docs_md/<name>/   converted markdown   (node 02)
+#   <data-root>/03_indices/<name>/   FAISS + BM25 index   (node 03)
+#
+# Fields
+#   name          index name; also the `projects` value in the chat API
+#   url           https git URL
+#   branch        default "main"
+#   include       glob patterns, relative to the repo root, of files to ingest.
+#                 pathlib semantics: `**` matches directories recursively, so
+#                 `docs/**/*.md` also matches `docs/top-level.md`.
+#   exclude       glob patterns subtracted from the include set. Note the
+#                 trailing `/*` — `docs/locales/**` alone matches directories,
+#                 `docs/locales/**/*` matches the files inside them.
+#   verify_query  node 04's canary. The index passes only if the top FAISS hit
+#                 is below verify.l2_threshold (pipeline/config/pipeline.yaml)
+#                 AND the BM25 arm returns at least one hit.
+#
+# `.rst` files are converted with pandoc; `.md` files are copied through.
+# Routing is by extension — there is no per-source format flag.
+#
+# All five sources below are public. A private repo works too: set GITHUB_TOKEN
+# in your .env and node 01 injects it into the clone URL.
+
+sources:
+  - name: backendai
+    url: https://github.com/lablup/backend.ai.git
+    branch: main
+    # 108 .rst + 8 .md of published docs. docs/locales/ is 129 Korean .po
+    # translation catalogs — not prose, and they would pollute retrieval.
+    include:
+      - "docs/**/*.rst"
+      - "docs/**/*.md"
+    exclude:
+      - "docs/locales/**/*"
+    verify_query: "What is Backend.AI?"
+
+  - name: webui
+    url: https://github.com/lablup/backend.ai-docs-webui.git
+    branch: main
+    # A docs-only repo: 29 .rst carry all the prose, the other ~490 files are
+    # screenshots, fonts and Korean .po catalogs.
+    include:
+      - "docs/**/*.rst"
+    exclude:
+      - "docs/locale/**/*"
+    verify_query: "How do I mount a virtual folder into a session?"
+
+  - name: mlxcel
+    url: https://github.com/lablup/mlxcel.git
+    branch: main
+    # Markdown-native. docs/benchmark_results/ is 42 raw result dumps with no
+    # prose value. The MkDocs configs point at docs/en and docs/ko, which do
+    # not exist on main — the flat docs/*.md layout below is what is there.
+    include:
+      - "docs/*.md"
+      - "docs/adr/*.md"
+      - "README.md"
+    exclude:
+      - "docs/benchmark_results/**/*"
+    verify_query: "How do I add a new model to mlxcel?"
+
+  - name: all-smi
+    url: https://github.com/lablup/all-smi.git
+    branch: main
+    # This repo's docs/ holds only 5 files, two of which are development logs
+    # (PR61_REVIEW.md, Devlog-Tenstorrent.md). The actual user documentation
+    # lives at the repo root — hence the root-level includes.
+    include:
+      - "docs/ARCHITECTURE.md"
+      - "docs/LIB_mode.md"
+      - "README.md"
+      - "API.md"
+      - "DEVELOPERS.md"
+    verify_query: "How do I monitor GPU utilization across multiple nodes?"
+
+  - name: bssh
+    url: https://github.com/lablup/bssh.git
+    branch: main
+    # docs/architecture/ is the substantive chunk; the root files add the
+    # overview the docs/ tree assumes you have already read.
+    include:
+      - "docs/**/*.md"
+      - "README.md"
+      - "ARCHITECTURE.md"
+    verify_query: "How do I run a command on multiple hosts at once?"
