@@ -1,0 +1,23 @@
+# Model service definition for the Gradio chat UI.
+#
+# See model-definition-fastapi.yaml — this is the same file with a different
+# argument to serve.sh.
+#
+# The health check uses /health rather than /, which docs_rag/ui.py registers on
+# Gradio's underlying FastAPI app: / requires the login, so probing it would
+# report an authenticated service as unhealthy.
+models:
+  - name: "docs-rag-gradio"
+    model_path: "/models"
+    service:
+      start_command:
+        - /bin/bash
+        - /models/docs-rag/pipeline/serve.sh
+        - gradio
+      port: "8000"
+      health_check:
+        path: /health
+        max_retries: 500
+        max_wait_time: 60.0
+        expected_status_code: 200
+        initial_delay: 300.0
