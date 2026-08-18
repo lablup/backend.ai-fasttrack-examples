@@ -122,8 +122,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -155,8 +155,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -181,8 +181,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -207,8 +207,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -237,8 +237,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -263,8 +263,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -289,8 +289,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -315,8 +315,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -348,8 +348,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
@@ -383,8 +383,8 @@ tasks:
     cluster_size: 1
     module_uri: ''
     environment:
-      project: default
-      scaling-group: default
+      project: H100
+      scaling-group: nvidia-H100
       image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:

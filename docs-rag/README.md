@@ -287,8 +287,8 @@ follows the published schema, change these four:
 | `version` | `26.4.4rc6` | your cluster's release |
 | ownership | `domain:` + `scope: user` | `domain_name:` + `scope: project` |
 | serving nodes | `type: deployment` | `type: serving` |
-| `scaling-group` | `default` | your resource group |
-| `project` | `default` | your project |
+| `scaling-group` | `nvidia-H100` | your resource group |
+| `project` | `H100` | your project |
 | model vFolder | `your_model_folder` | the empty vFolder you created |
 
 Export an existing pipeline from your cluster to see which shape it uses.
