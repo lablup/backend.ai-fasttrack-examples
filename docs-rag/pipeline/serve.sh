@@ -17,8 +17,13 @@ SERVICE="${1:-}"
 case "$SERVICE" in
     fastapi) MODULE="docs_rag.server" ;;
     gradio)  MODULE="docs_rag.ui" ;;
+    # Build the venv and stop. Run from the definition's pre_start_actions so the
+    # dependency install happens before the service is expected to listen —
+    # doing it inline meant minutes of silence on a fresh container, and the
+    # platform killed the process before it ever bound the port.
+    setup)   MODULE="" ;;
     *)
-        echo "[serve] FATAL: expected 'fastapi' or 'gradio', got '${SERVICE:-<nothing>}'" >&2
+        echo "[serve] FATAL: expected 'fastapi', 'gradio' or 'setup', got '${SERVICE:-<nothing>}'" >&2
         exit 2
         ;;
 esac
@@ -60,6 +65,11 @@ if [ ! -f "$STAMP" ] || [ requirements-service.txt -nt "$STAMP" ]; then
     "$VENV/bin/pip" install --quiet --upgrade pip
     "$VENV/bin/pip" install --quiet -r requirements-service.txt
     touch "$STAMP"
+fi
+
+if [ -z "$MODULE" ]; then
+    echo "[serve] setup complete — venv ready at $VENV"
+    exit 0
 fi
 
 # Where the indices were staged. Set explicitly rather than inferred, because

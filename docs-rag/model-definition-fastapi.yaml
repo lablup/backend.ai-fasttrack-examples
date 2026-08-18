@@ -10,6 +10,13 @@ models:
   - name: "docs-rag-fastapi"
     model_path: "/pipeline/vfroot"
     service:
+      # Install the dependencies before the service is expected to listen.
+      # A fresh container has no venv, and building one inline kept the port
+      # closed for minutes — long enough for the platform to kill it.
+      pre_start_actions:
+        - action: run_command
+          args:
+            command: ["/bin/bash", "/pipeline/vfroot/docs-rag/pipeline/serve.sh", "setup"]
       start_command:
         - /bin/bash
         - /pipeline/vfroot/docs-rag/pipeline/serve.sh
