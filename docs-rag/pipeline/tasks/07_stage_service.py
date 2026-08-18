@@ -66,16 +66,20 @@ def stage_code(destination: Path) -> int:
     return sum(1 for p in destination.rglob("*") if p.is_file())
 
 
-def stage_model_definitions(model_root: Path) -> list[str]:
+def stage_model_definitions(model_root: Path, replace: bool = False) -> list[str]:
     """Place the default model definitions, without clobbering custom ones.
 
     An operator who uploaded their own tuned definition keeps it; one who
     uploaded nothing still gets a working service instead of a start failure.
+
+    `replace` overrides that for model storage, which the pipeline owns rather
+    than the operator: the deployment reads its definition from there, so a copy
+    left over from an earlier run silently pins the old port or start command.
     """
     placed = []
     for name in MODEL_DEFINITIONS:
         target = model_root / name
-        if target.exists():
+        if target.exists() and not replace:
             log.info("%s already present at the staging root — leaving it alone", name)
             continue
         source = PROJECT_ROOT / name
@@ -85,6 +89,51 @@ def stage_model_definitions(model_root: Path) -> list[str]:
         shutil.copy2(source, target)
         placed.append(name)
     return placed
+
+
+def mirror_to_model_storage(stage_root: Path) -> list[str]:
+    """Copy the small service files into model storage as well.
+
+    FastTrack resolves a deployment's model_definition_path relative to the
+    model mount, so an absolute path into /pipeline/vfroot becomes
+    /models/pipeline/vfroot/... and is never found. The definition therefore has
+    to exist under /models, whatever else lives elsewhere.
+
+    Only the small files are mirrored. The code tree and the indices stay on the
+    vfroot, which serving containers read for the whole of their lifetime — there
+    is no reason to duplicate hundreds of megabytes into a second mount.
+
+    Non-fatal when model storage is absent: a batch-only run is legitimate, and
+    the deployment nodes report the missing definition clearly enough.
+    """
+    # Resolved here rather than imported, for the same reason the staging root
+    # is: settings binds the environment at module load, before load_dotenv().
+    model_root = Path(os.environ.get("PIPELINE_MODEL_ROOT", "/models"))
+    if model_root == stage_root:
+        log.info("staging root is model storage — nothing to mirror")
+        return []
+    if not model_root.is_dir() or not os.access(model_root, os.W_OK):
+        log.warning(
+            "%s is not mounted writable — skipping the model-storage copy. The "
+            "deployment nodes resolve model_definition_path relative to this "
+            "mount, so they will not find their definition. Attach the model "
+            "vfolder to this task if you are deploying.", model_root,
+        )
+        return []
+
+    mirrored = stage_model_definitions(model_root, replace=True)
+    for relative in (Path(".env"), Path(STAGE_STATE) / credentials.CREDENTIALS_FILENAME):
+        source = stage_root / relative
+        if not source.is_file():
+            continue
+        target = model_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        target.chmod(0o600)
+        mirrored.append(str(relative))
+
+    log.info("mirrored into %s: %s", model_root, ", ".join(mirrored))
+    return mirrored
 
 
 def stage_env(stage_root: Path) -> list[str]:
@@ -179,6 +228,8 @@ def handler(args: argparse.Namespace, cfg: SourcesConfig, data_root: Path) -> di
     env_written = stage_env(stage_root)
     creds = stage_credentials(data_root, stage_root)
 
+    mirrored = mirror_to_model_storage(stage_root)
+
     projects = sorted(p.name for p in served_indices.iterdir() if p.is_dir())
     log.info(
         "staged %d code files and %d index/indices (%s) into %s",
@@ -196,6 +247,7 @@ def handler(args: argparse.Namespace, cfg: SourcesConfig, data_root: Path) -> di
         "projects": projects,
         "model_definitions_placed": definitions,
         "env_settings_written": len(env_written),
+        "mirrored_to_model_storage": mirrored,
         "credentials_source": creds.source,
     }
 
