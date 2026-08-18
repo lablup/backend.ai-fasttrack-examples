@@ -7,7 +7,7 @@ history; everything else is in the prompt.
 from __future__ import annotations
 
 import logging
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator, Iterable, List, Optional, Tuple
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -67,6 +67,24 @@ class RAGChat:
 
     def clear(self) -> None:
         self.messages = []
+
+    def seed_history(self, turns: Iterable[Tuple[str, str]]) -> None:
+        """Load a prior conversation from (role, content) pairs.
+
+        Only user and assistant turns are kept. A caller-supplied system message
+        is deliberately dropped: the grounding rules are this server's, and
+        honouring an injected one would let a request opt out of them.
+        """
+        self.messages = []
+        for role, content in turns:
+            if not content:
+                continue
+            if role == "user":
+                self.messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                self.messages.append(AIMessage(content=content))
+        if len(self.messages) > self.max_messages:
+            self.messages = self.messages[-self.max_messages :]
 
     def _remember(self, question: str, answer: str) -> None:
         self.messages.append(HumanMessage(content=question))

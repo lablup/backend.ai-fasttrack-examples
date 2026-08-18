@@ -45,7 +45,7 @@ environment:
     # --- LLM and embeddings ----------------------------------------------
     # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
     # a Backend.AI model service to use your own endpoint.
-    
+    OPENAI_BASE_URL: ""
     LLM_MODEL: "gpt-4.1"
     # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
     EMBEDDING_MODEL: "text-embedding-3-small"
@@ -90,7 +90,7 @@ environment:
 
     # --- pin the example revision ----------------------------------------
     # A tag or branch of the examples repo for fetch-code to clone.
-    DOCSRAG_REF: "feat/docs-rag-example"
+    DOCSRAG_REF: "main"
 
     # --- mount points -----------------------------------------------------
     # FastTrack's layout. Change these only if your cluster differs.
@@ -128,7 +128,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -173,7 +173,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -225,7 +225,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -270,7 +270,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -315,7 +315,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -360,7 +360,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -405,7 +405,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -450,7 +450,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -499,7 +499,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -544,7 +544,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -589,7 +589,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -634,7 +634,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -679,7 +679,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -724,7 +724,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -769,7 +769,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -814,7 +814,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -864,7 +864,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -909,7 +909,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.
@@ -967,7 +967,7 @@ tasks:
         # --- LLM and embeddings ----------------------------------------------
         # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
         # a Backend.AI model service to use your own endpoint.
-        
+        OPENAI_BASE_URL: ""
         LLM_MODEL: "gpt-4.1"
         # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
         EMBEDDING_MODEL: "text-embedding-3-small"
@@ -1012,7 +1012,7 @@ tasks:
 
         # --- pin the example revision ----------------------------------------
         # A tag or branch of the examples repo for fetch-code to clone.
-        DOCSRAG_REF: "feat/docs-rag-example"
+        DOCSRAG_REF: "main"
 
         # --- mount points -----------------------------------------------------
         # FastTrack's layout. Change these only if your cluster differs.

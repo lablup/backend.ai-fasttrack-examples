@@ -25,6 +25,11 @@ from pipeline.runner import seed_from_input
 
 PIPELINE_YAMLS = ("fasttrack_pipeline.yaml", "fasttrack_pipeline_inline.yaml")
 
+# The model vFolder is account-scoped, so both files ship a name the reader is
+# told to replace. A real folder name reaching main means somebody's own cluster
+# was committed, and the file stops working for everybody else.
+PLACEHOLDER_VFOLDER = "your_model_folder"
+
 
 def load_pipeline(name: str) -> dict:
     import yaml
@@ -72,7 +77,23 @@ def test_both_yamls_describe_the_same_pipeline():
     """
     base, inline = (load_pipeline(name) for name in PIPELINE_YAMLS)
 
-    assert base["tasks"] == inline["tasks"]
+    def without_envs(tasks):
+        """Drop only environment.envs: that is the one thing the files differ in.
+
+        The base file leaves each task's envs empty and supplies configuration
+        once; the inline file repeats a populated block on every task, because
+        FastTrack does not reliably propagate the pipeline-level one.
+        """
+        stripped = []
+        for task in tasks:
+            task = {k: v for k, v in task.items()}
+            task["environment"] = {
+                k: v for k, v in task["environment"].items() if k != "envs"
+            }
+            stripped.append(task)
+        return stripped
+
+    assert without_envs(base["tasks"]) == without_envs(inline["tasks"])
     assert base["version"] == inline["version"]
     assert base["ownership"] == inline["ownership"]
 
@@ -93,14 +114,29 @@ def test_the_dag_is_wired_head_to_services():
         # Model storage is the only mount a serving container shares with the
         # batch tasks; naming a vFolder here is what breaks portability.
         assert "mounts" not in tasks[service]
+        assert tasks[service]["service"]["model"] == PLACEHOLDER_VFOLDER
         assert len(tasks[service]["service"]["name"]) <= 24
 
 
 @pytest.mark.parametrize("name", PIPELINE_YAMLS)
-def test_no_task_mounts_a_named_vfolder(name):
-    """The whole portability claim is that this file names no vFolder."""
-    for task in load_pipeline(name)["tasks"]:
-        assert "mounts" not in task, f"{name}: {task['name']} declares a vFolder mount"
+def test_only_stage_service_mounts_a_vfolder(name):
+    """One mount, on one task, and named as a placeholder.
+
+    A deployment resolves model_definition_path against its own model mount, so
+    the definitions have to be written into that vFolder and stage-service has
+    to mount it. That is the single account-scoped value in either file — every
+    other task still runs without naming one, which is what keeps the pipeline
+    shareable.
+    """
+    mounted = {
+        task["name"]: task["mounts"]
+        for task in load_pipeline(name)["tasks"]
+        if task.get("mounts")
+    }
+    assert list(mounted) == ["stage-service"], f"{name}: unexpected mounts {mounted}"
+    assert mounted["stage-service"] == [PLACEHOLDER_VFOLDER], (
+        f"{name}: mount should stay a placeholder, got {mounted['stage-service']}"
+    )
 
 
 # --- sources.yaml ---------------------------------------------------------

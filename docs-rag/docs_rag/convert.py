@@ -11,7 +11,7 @@ import asyncio
 import logging
 import shutil
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 log = logging.getLogger("convert")
 
@@ -39,6 +39,27 @@ def _output_path(source: Path, repo_root: Path, out_root: Path) -> Path:
     """Mirror the repo's directory structure, with an `.md` extension."""
     relative = source.relative_to(repo_root)
     return (out_root / relative).with_suffix(".md")
+
+
+def _check_no_collisions(sources: Sequence[Path], repo_root: Path, out_root: Path) -> None:
+    """Refuse to convert when two sources map to the same destination.
+
+    `guide.rst` and `guide.md` in one directory both become `guide.md`, so one
+    silently overwrites the other while both are reported as written. A repo
+    that legitimately mixes formats should fail here rather than ship an index
+    missing a document nobody noticed losing.
+    """
+    seen: Dict[Path, Path] = {}
+    clashes = []
+    for source in sources:
+        destination = _output_path(source, repo_root, out_root)
+        if destination in seen:
+            clashes.append(f"{seen[destination]} and {source} -> {destination}")
+        seen[destination] = source
+    if clashes:
+        raise ValueError(
+            "sources collide on one output path: " + "; ".join(clashes)
+        )
 
 
 async def _run_pandoc(source: Path, destination: Path) -> None:
@@ -70,6 +91,9 @@ async def convert_files(
     One unconvertible page must not abort a 100-page corpus, so failures are
     collected and reported by the caller.
     """
+    files = list(files)
+    _check_no_collisions(files, repo_root, out_root)
+
     out_root.mkdir(parents=True, exist_ok=True)
     written = 0
     failures: List[str] = []

@@ -119,12 +119,16 @@ def run_node(
 def test_chain_clone_convert_publish_stage(tmp_path: Path, sources_yaml: Path):
     outputs = {name: tmp_path / "out" / name for name in ("clone", "convert", "publish", "stage")}
     vfroot = tmp_path / "vfroot"
-    model_root = tmp_path / "models"
-    model_root.mkdir()
+    # The shipped layout: code and indices on the persistent vfroot, and only the
+    # four small service files mirrored into the model vFolder. Setting
+    # PIPELINE_MODEL_ROOT instead would exercise node 07's alternate
+    # all-in-model-storage mode, which no pipeline in this repo uses.
+    model_storage = tmp_path / "models"
+    model_storage.mkdir()
 
     shared_env = {
         "PIPELINE_VFROOT": str(vfroot),
-        "PIPELINE_MODEL_ROOT": str(model_root),
+        "PIPELINE_MODEL_STORAGE": str(model_storage),
         # Pin the credentials so the run is deterministic and nothing is
         # generated; the generation path is exercised by its own test below.
         "GRADIO_USERNAME": "tester",
@@ -178,20 +182,34 @@ def test_chain_clone_convert_publish_stage(tmp_path: Path, sources_yaml: Path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
-    # The code, the indices and the model definitions all land in model storage,
-    # which is the only mount a serving container can see.
-    staged = model_root / "docs-rag"
+    # The code and the indices land on the vfroot, at the path both model
+    # definitions name in their start_command.
+    staged = vfroot / "docs-rag"
     assert (staged / "docs_rag" / "server.py").is_file()
     assert (staged / "pipeline" / "serve.sh").is_file()
     assert (staged / "pipeline" / "data" / "03_indices" / "widget" / "index.faiss").is_file()
-    assert (model_root / "model-definition-fastapi.yaml").is_file()
-    assert (model_root / "model-definition-gradio.yaml").is_file()
 
-    # Runtime data and caches must not be copied into model storage.
+    # Runtime data and caches must not be copied along with the code.
     assert not (staged / "pipeline" / "data" / "01_repos").exists()
+    assert not (staged / ".git").exists()
 
-    creds = json.loads((model_root / "99_state" / "service_credentials.json").read_text())
-    assert creds["api_key"] == "token"
+    # Only the small files are mirrored into model storage — a deployment
+    # resolves model_definition_path relative to that mount and finds nothing
+    # anywhere else. The code tree must not be duplicated into it.
+    assert (model_storage / "model-definition-fastapi.yaml").is_file()
+    assert (model_storage / "model-definition-gradio.yaml").is_file()
+    assert (model_storage / ".env").is_file()
+    assert not (model_storage / "docs-rag").exists()
+
+    # The generated .env is what reaches the deployment containers, which never
+    # receive their pipeline envs.
+    env_text = (model_storage / ".env").read_text()
+    assert "API_KEY=token" in env_text
+    assert "GITHUB_TOKEN" not in env_text
+
+    for root in (vfroot, model_storage):
+        creds = json.loads((root / "99_state" / "service_credentials.json").read_text())
+        assert creds["api_key"] == "token"
 
 
 @needs_git

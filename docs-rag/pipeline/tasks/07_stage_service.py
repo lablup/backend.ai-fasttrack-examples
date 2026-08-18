@@ -115,13 +115,18 @@ def mirror_to_model_storage(stage_root: Path) -> list[str]:
         log.info("staging root is model storage — nothing to mirror")
         return []
     if not model_root.is_dir() or not os.access(model_root, os.W_OK):
-        log.warning(
-            "%s is not mounted writable — skipping the model-storage copy. The "
-            "deployment nodes resolve model_definition_path relative to this "
-            "mount, so they will not find their definition. Add the model vfolder "
-            "to this task's mounts: list and point PIPELINE_MODEL_STORAGE at it "
-            "if you are deploying.", model_root,
+        message = (
+            f"{model_root} is not mounted writable, so the model definitions "
+            "cannot be written. The deployment nodes resolve "
+            "model_definition_path relative to this mount and would fall back "
+            "to the default runtime. Add the model vfolder to this task's "
+            "mounts: list and point PIPELINE_MODEL_STORAGE at it."
         )
+        if on_fasttrack():
+            # Failing here names the wiring error. Succeeding would surface it
+            # as two unrelated-looking deployment failures further on.
+            raise SystemExit(message)
+        log.warning("%s Skipping the copy (local run).", message)
         return []
 
     mirrored = stage_model_definitions(model_root, replace=True)

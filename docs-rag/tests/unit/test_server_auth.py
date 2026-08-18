@@ -71,6 +71,23 @@ def test_serving_open_is_still_possible_when_asked_for_explicitly(client):
 
 
 def test_health_never_requires_a_token(client):
-    """The model-service probe has no credentials to offer."""
+    """The model-service probe has no credentials to offer.
+
+    It answers 503 here because this fixture loads no index — the point is that
+    it is never 401. Readiness and authentication are separate concerns, and a
+    probe that could 401 would make a correctly-secured service look down.
+    """
     with client("s3cret") as c:
-        assert c.get("/health").status_code == 200
+        for path in ("/", "/health"):
+            assert c.get(path).status_code == 503
+
+
+def test_health_is_ok_once_an_index_is_loaded(client, monkeypatch):
+    """200 only when there is something to answer from."""
+    with client("s3cret") as c:
+        # `projects` derives from the loaded indices; a sentinel entry is enough.
+        monkeypatch.setitem(server.app.state.retriever.indices, "backendai", object())
+        for path in ("/", "/health"):
+            response = c.get(path)
+            assert response.status_code == 200
+            assert response.json()["projects"] == ["backendai"]

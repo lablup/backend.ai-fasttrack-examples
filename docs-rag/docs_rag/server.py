@@ -16,7 +16,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator, List, Literal, Optional
+from typing import AsyncGenerator, List, Literal, Optional, Tuple
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException
@@ -58,7 +58,9 @@ class ChatCompletionRequest(BaseModel):
         description="Which corpora to search. Defaults to every loaded index.",
     )
     retrieval_mode: Optional[Literal["hybrid", "semantic", "lexical"]] = None
-    top_k: Optional[int] = None
+    # Positive only: zero would silently mean "use the default", and a negative
+    # value reaches the retriever as a Python negative slice.
+    top_k: Optional[int] = Field(default=None, gt=0)
 
 
 class Choice(BaseModel):
@@ -195,13 +197,16 @@ def _resolve_projects(request: ChatCompletionRequest) -> List[str]:
     loaded = app.state.retriever.projects
     if request.projects is None:
         return loaded
-    valid = [p for p in request.projects if p in loaded]
-    if not valid:
+    unknown = [p for p in request.projects if p not in loaded]
+    if unknown:
+        # Every explicitly named project must exist. Dropping the unknown ones
+        # and answering from the rest looks like success while quietly searching
+        # somewhere the caller did not ask for.
         raise HTTPException(
             status_code=400,
-            detail=f"None of {request.projects} are loaded. Available: {loaded}",
+            detail=f"Unknown project(s) {unknown}. Available: {loaded}",
         )
-    return valid
+    return list(request.projects)
 
 
 def _last_user_message(request: ChatCompletionRequest) -> str:
@@ -211,8 +216,25 @@ def _last_user_message(request: ChatCompletionRequest) -> str:
     raise HTTPException(status_code=400, detail="No user message in the request")
 
 
-def _new_chat() -> RAGChat:
-    return RAGChat(app.state.retriever, app.state.settings)
+def _prior_turns(request: ChatCompletionRequest) -> List[Tuple[str, str]]:
+    """Every turn before the question being asked.
+
+    OpenAI clients resend the whole conversation on each request, so answering
+    only the last user line drops the context a follow-up depends on — "how do I
+    stop it on the first failure?" is unanswerable without the turn that named
+    the tool.
+    """
+    for index in range(len(request.messages) - 1, -1, -1):
+        if request.messages[index].role == "user":
+            return [(m.role, m.content) for m in request.messages[:index]]
+    return []
+
+
+def _new_chat(request: Optional[ChatCompletionRequest] = None) -> RAGChat:
+    chat = RAGChat(app.state.retriever, app.state.settings)
+    if request is not None:
+        chat.seed_history(_prior_turns(request))
+    return chat
 
 
 @app.get("/")
@@ -228,9 +250,20 @@ async def root() -> dict:
 
 @app.get("/health")
 async def health() -> dict:
+    """Readiness, not liveness: 503 until at least one index is loaded.
+
+    Both model definitions treat 200 as ready. Answering 200 with no corpus
+    would route traffic to a service that replies fluently from empty context,
+    which is worse than a deployment that never goes healthy.
+    """
     retriever = getattr(app.state, "retriever", None)
     projects = retriever.projects if retriever else []
-    return {"status": "ok" if projects else "degraded", "projects": projects}
+    if not projects:
+        raise HTTPException(
+            status_code=503,
+            detail="no indices loaded — check that stage-service staged them",
+        )
+    return {"status": "ok", "projects": projects}
 
 
 @app.get("/v1/models", dependencies=[Depends(verify_token)])
@@ -248,7 +281,7 @@ async def chat_completions(request: ChatCompletionRequest):
     if mode not in RETRIEVAL_MODES:
         raise HTTPException(status_code=400, detail=f"retrieval_mode must be one of {RETRIEVAL_MODES}")
 
-    chat = _new_chat()
+    chat = _new_chat(request)
     created = int(time.time())
     response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
 

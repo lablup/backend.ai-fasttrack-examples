@@ -65,3 +65,31 @@ def test_scores_are_normalised_and_descending():
 
 def test_empty_input_is_not_an_error():
     assert fuse_results({}, {}) == []
+
+
+# --- BM25 relevance -------------------------------------------------------
+
+
+def test_bm25_returns_nothing_when_no_token_matches(tmp_path):
+    """A query sharing no token with the corpus has no lexical hits.
+
+    BM25 scores every document, giving zero to those with no overlap, and
+    sorting zeros still yields k of them. Returning those made a lexical hit
+    meaningless — and let node 04's `lexical_hits > 0` canary pass for any
+    non-empty corpus regardless of what was asked.
+    """
+    from langchain_core.documents import Document
+
+    from docs_rag.bm25 import BM25Store
+
+    store = BM25Store()
+    store.build([
+        Document(page_content="bssh runs a command across many hosts", metadata={}),
+        Document(page_content="mlxcel serves models on Apple silicon", metadata={}),
+    ])
+
+    assert store.search("quantum chromodynamics tensor", k=5) == []
+
+    hits = store.search("bssh hosts", k=5)
+    assert len(hits) == 1
+    assert "bssh" in hits[0][0].page_content

@@ -140,3 +140,27 @@ def test_thinking_body_only_sent_to_a_custom_endpoint():
     assert custom.llm_kwargs()["extra_body"] == {
         "chat_template_kwargs": {"enable_thinking": True}
     }
+
+
+# --- conversion output paths ----------------------------------------------
+
+
+def test_two_sources_may_not_collide_on_one_destination(tmp_path):
+    """`guide.rst` and `guide.md` both become `guide.md`.
+
+    Converting both would overwrite one while reporting both as written, and the
+    loss only shows up as a document missing from the index at query time.
+    """
+    import pytest
+
+    from docs_rag.convert import _check_no_collisions
+
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    rst, md = repo / "docs" / "guide.rst", repo / "docs" / "guide.md"
+
+    with pytest.raises(ValueError, match="collide"):
+        _check_no_collisions([rst, md], repo, tmp_path / "out")
+
+    # Distinct stems are fine, mixed formats and all.
+    _check_no_collisions([rst, repo / "docs" / "install.md"], repo, tmp_path / "out")

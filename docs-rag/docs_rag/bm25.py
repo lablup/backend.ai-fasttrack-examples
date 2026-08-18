@@ -84,15 +84,28 @@ class BM25Store:
         if self.is_empty:
             return []
 
-        scores = self._index.get_scores(tokenize(query))
+        tokens = tokenize(query)
+        scores = self._index.get_scores(tokens)
 
-        k = min(k, len(self._documents))
-        top_indices = sorted(
-            range(len(self._documents)), key=lambda i: scores[i], reverse=True
-        )[:k]
+        # Rank only documents that actually contain a query token. BM25 scores
+        # every document, and sorting the zeros it gives the rest still yields k
+        # of them — which would make a lexical hit meaningless, and would let
+        # node 04's `lexical_hits > 0` canary pass for any non-empty corpus
+        # whatever was asked. Overlap is tested against the term frequencies
+        # rather than the score, because rank_bm25 floors IDF to zero for a term
+        # carried by half a small corpus: a real match, scoring 0.
+        wanted = set(tokens)
+        matching = [
+            i for i, freqs in enumerate(self._index.doc_freqs) if wanted & freqs.keys()
+        ]
+        if not matching:
+            return []
 
-        min_score = float(min(scores))
-        max_score = float(max(scores))
+        k = min(k, len(matching))
+        top_indices = sorted(matching, key=lambda i: scores[i], reverse=True)[:k]
+
+        min_score = float(min(scores[i] for i in top_indices))
+        max_score = float(max(scores[i] for i in top_indices))
         score_range = max_score - min_score if max_score != min_score else 1.0
 
         results: List[Tuple[Document, float]] = []

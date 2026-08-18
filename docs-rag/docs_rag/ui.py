@@ -88,10 +88,12 @@ def build_interface(retriever: Retriever, settings: Settings) -> gr.Blocks:
         )
         sources = format_sources(chunks)
 
-        # A fresh chat per turn: the UI passes the whole history to Gradio
-        # anyway, and a shared RAGChat would leak one browser tab's history
-        # into another's.
+        # A fresh chat per turn, seeded from this session's history: a shared
+        # RAGChat would leak one browser tab's conversation into another's, but
+        # without the seed every follow-up is answered as an isolated question.
+        # `history` already has the pending question appended, hence [:-1].
         chat = RAGChat(retriever, settings)
+        chat.seed_history((m["role"], m["content"]) for m in (history or [])[:-1])
         context = format_context(chunks, settings.max_chars_per_chunk)
         answer = ""
         async for token in chat.answer_with_context(message, context):

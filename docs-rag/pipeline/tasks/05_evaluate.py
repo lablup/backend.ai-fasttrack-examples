@@ -52,7 +52,11 @@ async def score_one(
     sample: dict, retriever: Retriever, judge, settings, projects: List[str]
 ) -> EvalQuestionResult:
     question = sample["question"]
-    chunks = await retriever.retrieve(question, projects, mode="hybrid")
+    # Search only the corpus this fixture is labelled with. Retrieving across
+    # every project lets another corpus supply the answer, which scores that
+    # project's retrieval as working when it may not be.
+    scope = [sample["project"]] if sample.get("project") in projects else projects
+    chunks = await retriever.retrieve(question, scope, mode="hybrid")
     context = format_context(chunks, settings.max_chars_per_chunk)
 
     top_l2 = min(
