@@ -63,6 +63,18 @@ def format_sources(chunks: List[dict]) -> str:
     return "\n".join(lines)
 
 
+# One per indexed corpus. These are the same queries node 04 verifies the
+# indices with, so each is known to retrieve its own documentation rather than
+# being a plausible-looking guess.
+EXAMPLE_QUESTIONS = [
+    "What is Backend.AI?",
+    "How do I mount a virtual folder into a session?",
+    "How do I add a new model to mlxcel?",
+    "How do I monitor GPU utilization across multiple nodes?",
+    "How do I run a command on multiple hosts at once?",
+]
+
+
 def build_interface(retriever: Retriever, settings: Settings) -> gr.Blocks:
     projects = retriever.projects
 
@@ -104,6 +116,13 @@ def build_interface(retriever: Retriever, settings: Settings) -> gr.Blocks:
                 with gr.Row():
                     ask = gr.Button("Ask", variant="primary")
                     clear = gr.Button("Clear")
+                # Fills the box rather than sending: a click that fires a request
+                # gives no chance to pick the corpora or the retrieval mode first.
+                gr.Examples(
+                    examples=EXAMPLE_QUESTIONS,
+                    inputs=question,
+                    label="Example questions",
+                )
             with gr.Column(scale=2):
                 project_picker = gr.CheckboxGroup(
                     choices=projects, value=projects, label="Search in"

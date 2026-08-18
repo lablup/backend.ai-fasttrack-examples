@@ -215,6 +215,17 @@ def _new_chat() -> RAGChat:
     return RAGChat(app.state.retriever, app.state.settings)
 
 
+@app.get("/")
+async def root() -> dict:
+    """Unauthenticated liveness probe.
+
+    Mirrors /health so a deployment configured with either path passes. Gradio
+    answers 200 at / because it serves its login page there, and a definition
+    written for one service then quietly fails against the other.
+    """
+    return await health()
+
+
 @app.get("/health")
 async def health() -> dict:
     retriever = getattr(app.state, "retriever", None)

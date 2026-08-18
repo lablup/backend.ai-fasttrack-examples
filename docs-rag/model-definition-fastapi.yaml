@@ -23,7 +23,7 @@ models:
         - fastapi
       port: "8080"
       health_check:
-        path: /health
+        path: /
         max_retries: 500
         max_wait_time: 60.0
         expected_status_code: 200
