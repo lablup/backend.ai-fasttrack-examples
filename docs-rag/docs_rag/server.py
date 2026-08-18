@@ -309,7 +309,7 @@ def main() -> None:
     # Order matters: populate the environment, then let the credentials file
     # fill in anything .env did not, and only then build the cached Settings.
     load_layered_dotenv()
-    credentials.apply_for_serving(credentials.service_credentials_path(), "serve-fastapi")
+    credentials.apply_for_serving(credentials.service_credentials_candidates(), "serve-fastapi")
 
     require_auth_configured(get_settings())
     uvicorn.run(app, host=args.host, port=args.port)

@@ -151,7 +151,7 @@ def main() -> None:
     # Order matters: populate the environment, then let the credentials file
     # fill in anything .env did not, and only then build the cached Settings.
     load_layered_dotenv()
-    credentials.apply_for_serving(credentials.service_credentials_path(), "serve-gradio")
+    credentials.apply_for_serving(credentials.service_credentials_candidates(), "serve-gradio")
 
     settings = get_settings()
     auth = resolve_auth(settings)

@@ -31,20 +31,32 @@ import os
 import secrets
 import stat
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from pydantic import BaseModel, Field
 
-from docs_rag.settings import MODEL_ROOT
+from docs_rag.settings import MODEL_ROOT, PROJECT_ROOT
 
 log = logging.getLogger("credentials")
 
 CREDENTIALS_FILENAME = "service_credentials.json"
 
 
-def service_credentials_path() -> Path:
-    """Where the staging node writes, and the services read."""
-    return MODEL_ROOT / "99_state" / CREDENTIALS_FILENAME
+def service_credentials_candidates() -> tuple[Path, ...]:
+    """Where the staging node may have written, in the order the services look.
+
+    Mirrors settings.DOTENV_CANDIDATES, because the staging root moves with the
+    deployment layout: /pipeline/vfroot by default, model storage when
+    PIPELINE_MODEL_ROOT selects it. Searching one hardcoded root means a service
+    that refuses to start next to a credentials file it simply never looked at.
+    """
+    vfroot = Path(os.environ.get("PIPELINE_VFROOT", "/pipeline/vfroot"))
+    candidates = []
+    for root in (MODEL_ROOT, vfroot, PROJECT_ROOT):
+        path = root / "99_state" / CREDENTIALS_FILENAME
+        if path not in candidates:
+            candidates.append(path)
+    return tuple(candidates)
 
 ENV_GRADIO_USER = "GRADIO_USERNAME"
 ENV_GRADIO_PASS = "GRADIO_PASSWORD"
@@ -181,16 +193,21 @@ def resolve_for_run() -> ServiceCredentials:
     return ServiceCredentials.generate()
 
 
-def resolve_for_serving(credentials_file: Path) -> Optional[ServiceCredentials]:
-    """Credentials for a deployment node: environment if complete, else the file."""
+def resolve_for_serving(credentials_files: Sequence[Path]) -> Optional[ServiceCredentials]:
+    """Credentials for a deployment node: environment if complete, else a file."""
     env_creds = from_env()
     if env_creds is not None:
         log.info("using service credentials from the environment")
         return env_creds
-    return load(credentials_file)
+    for path in credentials_files:
+        creds = load(path)
+        if creds is not None:
+            log.info("using service credentials from %s", path)
+            return creds
+    return None
 
 
-def apply_for_serving(credentials_file: Path, service: str) -> Optional[ServiceCredentials]:
+def apply_for_serving(credentials_files: Sequence[Path], service: str) -> Optional[ServiceCredentials]:
     """Load, export and announce this service's credentials. Fail closed.
 
     Called before the app starts, so the banner heads the deployment log and the
@@ -200,7 +217,7 @@ def apply_for_serving(credentials_file: Path, service: str) -> Optional[ServiceC
     ALLOW_UNAUTHENTICATED=1 — serving the corpus to anyone who can reach the
     port is not a reasonable default.
     """
-    creds = resolve_for_serving(credentials_file)
+    creds = resolve_for_serving(credentials_files)
 
     if creds is None:
         if allow_unauthenticated():
@@ -214,9 +231,9 @@ def apply_for_serving(credentials_file: Path, service: str) -> Optional[ServiceC
             f"{service}: no service credentials found.\n"
             f"  Looked in: the environment ({ENV_GRADIO_USER}/{ENV_GRADIO_PASS}/"
             f"{ENV_API_KEY}, normally from .env)\n"
-            f"         and: {credentials_file}\n"
-            "  That file is written by the stage-service node; if it is missing, that "
-            "node did not run, or model storage was not mounted where it expected.\n"
+            + "".join(f"         and: {p}\n" for p in credentials_files)
+            + "  Those files are written by the stage-service node; if none is present, "
+            "that node did not run, or it staged somewhere these services do not look.\n"
             "  Refusing to serve unauthenticated. Set the three variables in .env, or "
             "set ALLOW_UNAUTHENTICATED=1 to override."
         )
