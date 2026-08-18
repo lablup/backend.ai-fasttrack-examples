@@ -7,15 +7,19 @@ node that builds an index and the node that queries it.
 
 Load order (first hit wins):
 
-    1. os.environ             values typed into the pipeline YAML's `envs`
-                              block, GUI secrets, or a plain shell export
-    2. /models/.env           model storage — the only mount both batch tasks
-                              and serving containers can read
-    3. /pipeline/vfroot/.env  the auto-created pipeline vFolder
-    4. ./.env                 local development
+    1. os.environ                    values typed into the pipeline YAML's
+                                     `envs` block, GUI secrets, a shell export
+    2. /models/.env                  model storage, as a serving container
+                                     mounts it
+    3. $PIPELINE_MODEL_STORAGE/.env  the same vfolder as a batch task mounts
+                                     it, by name under /home/work
+    4. /pipeline/vfroot/.env         the auto-created pipeline vFolder
+    5. ./.env                        local development
 
-Layer 2 is why the deployed services can find an API key at all: a serving
-container gets no /pipeline mounts.
+Layers 2 and 3 are the same folder seen from the two container kinds, which is
+why one uploaded .env serves both. FastTrack does not deliver a deployment
+node's `envs` to its container at all, so for the services a file is the only
+channel — the stage-service node writes one for exactly that reason.
 
 "Set" means *set to something*. An empty value, or an unresolved
 `${{ secrets.NAME }}` placeholder, counts as unset and falls through to the next
@@ -58,8 +62,14 @@ PROJECT_ROOT = PACKAGE_ROOT.parent
 # serving container. The only mount both container kinds share.
 MODEL_ROOT = Path(os.environ.get("PIPELINE_MODEL_ROOT", "/models"))
 
+# Model storage is mounted at /models in a serving container, but a batch task
+# mounts the same vfolder by name — /home/work/<name>. Both are candidates, so a
+# .env uploaded to that folder is found from either side.
+MODEL_STORAGE = Path(os.environ.get("PIPELINE_MODEL_STORAGE", "/models"))
+
 DOTENV_CANDIDATES = (
     MODEL_ROOT / ".env",
+    MODEL_STORAGE / ".env",
     Path(os.environ.get("PIPELINE_VFROOT", "/pipeline/vfroot")) / ".env",
     PROJECT_ROOT / ".env",
 )

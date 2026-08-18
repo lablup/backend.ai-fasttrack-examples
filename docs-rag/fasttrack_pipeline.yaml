@@ -102,6 +102,9 @@ environment:
     PIPELINE_OUTPUT_ROOT: /pipeline/outputs
     PIPELINE_INPUT_ROOT: /pipeline/input1
     PIPELINE_VFROOT: /pipeline/vfroot
+    # Where stage-service mirrors the model definitions, the generated .env and
+    # the credentials. Must match the mounts: entry on that task.
+    PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
     # Where fetch-code puts the checkout every other node runs from.
     DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
 
@@ -121,7 +124,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 2
@@ -131,7 +134,7 @@ tasks:
     # Pure shell: this is the one node that cannot use the Python helpers,
     # because it is the node that fetches them.
     command: |-
-      set -euo pipefail
+      set -eu
       SRC="${PIPELINE_VFROOT:-/pipeline/vfroot}/src"
       rm -rf "$SRC"
       mkdir -p "$(dirname "$SRC")"
@@ -154,7 +157,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 4
@@ -162,7 +165,7 @@ tasks:
     resource_opts:
       shmem: 512m
     command: |-
-      set -euo pipefail
+      set -eu
       cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
       bash pipeline/bootstrap.sh pipeline/tasks/01_clone_sources.py --project all
 
@@ -180,7 +183,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 4
@@ -188,7 +191,7 @@ tasks:
     resource_opts:
       shmem: 512m
     command: |-
-      set -euo pipefail
+      set -eu
       cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
       bash pipeline/bootstrap.sh pipeline/tasks/02_convert_docs.py --project all
 
@@ -206,7 +209,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 4
@@ -218,7 +221,7 @@ tasks:
       max_attempts: 2
       delay: 30
     command: |-
-      set -euo pipefail
+      set -eu
       cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
       bash pipeline/bootstrap.sh pipeline/tasks/03_build_indices.py --project all
 
@@ -236,7 +239,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 2
@@ -244,7 +247,7 @@ tasks:
     resource_opts:
       shmem: 512m
     command: |-
-      set -euo pipefail
+      set -eu
       cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
       bash pipeline/bootstrap.sh pipeline/tasks/04_verify_indices.py --project all
 
@@ -262,7 +265,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 2
@@ -270,7 +273,7 @@ tasks:
     resource_opts:
       shmem: 512m
     command: |-
-      set -euo pipefail
+      set -eu
       cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
       bash pipeline/bootstrap.sh pipeline/tasks/05_evaluate.py --project all
 
@@ -288,7 +291,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 2
@@ -296,7 +299,7 @@ tasks:
     resource_opts:
       shmem: 256m
     command: |-
-      set -euo pipefail
+      set -eu
       cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
       bash pipeline/bootstrap.sh pipeline/tasks/06_publish.py --project all
 
@@ -314,15 +317,22 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 2
       mem: 4g
     resource_opts:
       shmem: 256m
+    # The deployment nodes resolve model_definition_path against their model
+    # mount, so the definitions have to be written into that vfolder. Mounted by
+    # name it lands at /home/work/<name> here; the serving side sees the same
+    # folder at /models. Rename both this and PIPELINE_MODEL_STORAGE if your
+    # model vfolder is called something else.
+    mounts:
+      - your_model_folder
     command: |-
-      set -euo pipefail
+      set -eu
       cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
       bash pipeline/bootstrap.sh pipeline/tasks/07_stage_service.py --project all
 
@@ -340,7 +350,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 2
@@ -349,6 +359,9 @@ tasks:
       shmem: 512m
     service:
       name: docs-rag-api
+      # The vfolder stage-service mirrored the definition into. Nothing else is
+      # read from it — the code and indices come from /pipeline/vfroot.
+      model: your_model_folder
       model_mount_destination: /models
       model_definition_path: model-definition-fastapi.yaml
       runtime_variant: custom
@@ -372,7 +385,7 @@ tasks:
     environment:
       project: default
       scaling-group: default
-      image: cr.backend.ai/multiarch/python:3.10-ubuntu20.04
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
       envs: {}
     resources:
       cpu: 2
@@ -381,6 +394,9 @@ tasks:
       shmem: 512m
     service:
       name: docs-rag-ui
+      # The vfolder stage-service mirrored the definition into. Nothing else is
+      # read from it — the code and indices come from /pipeline/vfroot.
+      model: your_model_folder
       model_mount_destination: /models
       model_definition_path: model-definition-gradio.yaml
       runtime_variant: custom

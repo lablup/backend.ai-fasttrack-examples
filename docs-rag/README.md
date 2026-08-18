@@ -38,26 +38,30 @@ definition. Every setting in it is already filled in with its default, so
 Then:
 
 1. **Fill in `OPENAI_API_KEY`** at the top of your chosen file.
-2. **Create a model storage folder** and select it in the Create Pipeline
-   dialog. **Leave it empty** — you never upload anything into it. The
-   `stage-service` node writes the indices, the services' code and this run's
-   credentials there itself, taking them from the previous task's output. The
-   folder exists only because a Backend.AI model service always mounts one.
-3. **Create the pipeline**, then **Dry Run** and **Run**.
+2. **Create an empty model storage vFolder** and put its name in the two places
+   the file marks `your_model_folder`: the `mounts:` list on the `stage-service`
+   task, and `PIPELINE_MODEL_STORAGE`. You never upload anything into it —
+   `stage-service` writes the model definitions, a generated `.env` and this
+   run's credentials there itself.
+3. **Set `project` and `scaling-group`** to your cluster's, if they are not
+   `default`.
+4. **Create the pipeline**, then **Dry Run** and **Run**.
 
-That is the whole setup. This pipeline names **no vFolder anywhere** — vFolder
-names are account-scoped, so a pipeline that hardcodes one cannot be shared with
-anybody. See [How it stays portable](#how-it-stays-portable) for how the code
-and the indices get where they need to be without one.
+The vFolder name is the one account-scoped value in the file, and it is needed
+because a deployment resolves `model_definition_path` **relative to its model
+mount** — so the definition has to be inside that folder however the rest is
+laid out. Everything else the services need travels through `/pipeline/vfroot`.
+See [How it stays portable](#how-it-stays-portable).
 
 > Both files declare the same service names (`docs-rag-api`, `docs-rag-ui`), and
 > service names must be unique within a resource group. If you want to run both
 > variants at once, rename the services in one of them.
 
-The `model-definition-*.yaml` files are staged into model storage automatically
-by the `stage-service` node. Upload your own copies first if you want to
-customise them — the staging node will not overwrite a file that is already
-there.
+The `model-definition-*.yaml` files are written into your model vFolder by the
+`stage-service` node on every run, **replacing** what is there. That is
+deliberate: the deployment reads its start command and port from them, and a
+copy left over from an earlier run silently pins the old values. Customise them
+in the checkout, not in the vFolder.
 
 ### Where to find things afterwards
 
@@ -93,8 +97,10 @@ are iterating on globs or chunk sizes.
 Then serve it:
 
 ```bash
-bash pipeline/serve.sh fastapi   # OpenAI-compatible API on :8000
-bash pipeline/serve.sh gradio    # chat UI on :8000
+bash pipeline/serve.sh setup     # build the venv once (deployments do this
+                                 # in the definition's pre_start_actions)
+bash pipeline/serve.sh fastapi   # OpenAI-compatible API on :8080
+bash pipeline/serve.sh gradio    # chat UI on :8080
 ```
 
 ```bash
@@ -102,7 +108,7 @@ curl -H "Authorization: Bearer $API_KEY" \
      -H 'Content-Type: application/json' \
      -d '{"messages":[{"role":"user","content":"How do I stop bssh on the first host failure?"}],
           "projects":["bssh"]}' \
-     localhost:8000/v1/chat/completions
+     localhost:8080/v1/chat/completions
 ```
 
 Requirements for a local run: `git`, `pandoc`, and an `OPENAI_API_KEY`. On
@@ -137,13 +143,20 @@ Resolution order, first hit wins:
 
 | Order | Source | Set by |
 |---|---|---|
-| 1 | `os.environ` | a value typed into the pipeline YAML, a GUI secret, or a shell export |
-| 2 | `/models/.env` | you, uploading to model storage (optional) |
-| 3 | `/pipeline/vfroot/.env` | you, uploading to the auto-created pipeline vFolder |
-| 4 | built-in default | [`docs_rag/settings.py`](docs_rag/settings.py) |
+| 1 | `os.environ` | a value typed into a **batch** task's `envs`, a GUI secret, or a shell export |
+| 2 | `/models/.env` | model storage, as a serving container mounts it |
+| 3 | `$PIPELINE_MODEL_STORAGE/.env` | the same vFolder, as a batch task mounts it (`/home/work/<name>`) |
+| 4 | `/pipeline/vfroot/.env` | you, uploading to the auto-created pipeline vFolder |
+| 5 | built-in default | [`docs_rag/settings.py`](docs_rag/settings.py) |
 
-Layer 2 is the one that also reaches the deployed services: a serving container
-gets no `/pipeline` mounts at all.
+Layers 2 and 3 are one folder seen from the two container kinds, so a single
+upload serves both.
+
+> **FastTrack does not deliver a deployment node's `envs` to its container.**
+> Anything you type into the `envs` block of `serve-fastapi` or `serve-gradio`
+> is silently dropped, which is why `stage-service` generates a `.env` next to
+> the staged code and mirrors it into model storage. The two services read their
+> API key and their login from that file, never from the pipeline definition.
 
 > **Blank means unset.** An empty value, or an unresolved `${{ secrets.NAME }}`
 > placeholder, falls through to the next layer instead of winning as an empty
@@ -219,12 +232,16 @@ into `/pipeline/vfroot/src`, which FastTrack creates automatically. Every later
 node runs from that one checkout, so the whole DAG is guaranteed to run the same
 revision. Pin it by setting `DOCSRAG_REF` to a tag.
 
-**The indices reach the services through model storage.** A deployment container
-is not part of the task chain and gets no `/pipeline` mounts, which is why
-`stage-service` copies the code, the indices and this run's credentials into
-`/models`. Model storage is selected in the Create Pipeline dialog rather than
-named in the YAML — that is what keeps the file account-agnostic. The services
-then start with no network access and no git.
+**The code and indices reach the services through `/pipeline/vfroot`.** That is
+the one `/pipeline` mount which outlives the run, and a serving container can
+read it for the whole of its lifetime. A task's own `/pipeline/outputs` cannot
+be used for this: a deployment can read it once, but the handle goes stale when
+the upstream container ends and the service dies mid-startup on `ESTALE`. So
+`stage-service` puts the code tree, the indices and the credentials on the
+vfroot, and mirrors only four small files — the two model definitions, the
+generated `.env` and the credentials file — into your model vFolder, because a
+deployment resolves `model_definition_path` relative to its model mount and
+would not find them anywhere else.
 
 **Config arrives layered**, as described above, so it works whichever of those
 mounts a given cluster actually provides.
@@ -250,8 +267,10 @@ without anyone noticing.
 - Set `GRADIO_USERNAME`, `GRADIO_PASSWORD` and `API_KEY` in your `.env` to pin
   them. All three or none — a half-filled login is ignored on purpose.
 - Leave them blank and `stage-service` generates fresh ones per run, prints them
-  at the end of its log, and writes them to `/models/99_state/service_credentials.json`
-  with mode 0600.
+  at the end of its log, and writes them to `99_state/service_credentials.json`
+  with mode 0600 — on the vfroot and mirrored into model storage. This is the
+  recommended setting: a generated credential beats any default a shipped
+  example could suggest.
 - `ALLOW_UNAUTHENTICATED=1` serves deliberately open, with a warning.
 
 Those credentials are printed on purpose — they are yours, and the task log is
@@ -269,10 +288,12 @@ follows the published schema, change these four:
 | ownership | `domain:` + `scope: user` | `domain_name:` + `scope: project` |
 | serving nodes | `type: deployment` | `type: serving` |
 | `scaling-group` | `default` | your resource group |
+| `project` | `default` | your project |
+| model vFolder | `your_model_folder` | the empty vFolder you created |
 
 Export an existing pipeline from your cluster to see which shape it uses.
 
-The batch nodes run a CPU image (`cr.backend.ai/multiarch/python:3.10-ubuntu20.04`,
+The batch nodes run a CPU image (`cr.backend.ai/testing/python:3.11-ubuntu22.04`,
 4 CPU / 8 GB) and request no GPU. Embedding is an HTTPS call to a third-party
 API, so nothing in this pipeline touches an accelerator — and a CPU image
 schedules on any cluster.
@@ -322,7 +343,20 @@ needs no API key.
 
 ## What a run looks like
 
-Against the five default sources: 201 documentation files, 808 chunks, indices
-built in about 25 seconds, all five canaries passing with top-hit L2 between
-0.73 and 0.93, and an aggregate answer score around 0.94 (groundedness 0.96)
-across the 20 graded questions.
+Measured on a 26.4.x cluster against the five default sources: 826 chunks
+indexed in 27.7 s, all five canaries passing with top-hit L2 between 0.73 and
+0.93 — each retrieving its own documentation, not merely scoring under the
+threshold — and 20/20 graded questions scoring 0.94 overall, groundedness 0.96,
+in 94 s.
+
+| Node | Time | Result |
+|---|---|---|
+| `clone-docs` | 55 s | 5 repos |
+| `build-indices` | 28 s | 826 chunks, FAISS + BM25 |
+| `verify-indices` | 2 s | 5/5 canaries |
+| `evaluate` | 94 s | 0.9414 overall |
+| `publish` / `stage-service` | <1 s | vfroot + model storage |
+
+Both services then answer on `:8080`, enforce their bearer token and login, and
+scope retrieval per request — `{"projects": ["mlxcel"]}` narrows to one corpus,
+an unknown name is a `400` rather than a `500`.
