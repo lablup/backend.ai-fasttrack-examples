@@ -19,8 +19,16 @@
 #      stage-service node, though you can upload your own to override it.
 #
 # ADAPTING TO YOUR CLUSTER
-#   These values are what a 26.4.x cluster accepted. If your cluster follows the
-#   published schema instead, change: `version` to your cluster's release,
+#   Three things are specific to the cluster this was verified on, and every one
+#   of them is a straight find-and-replace:
+#     * `project: H100` and `scaling-group: nvidia-H100` on all ten tasks
+#     * `your_model_folder` — the empty model vFolder you created, named in the
+#       stage-service `mounts:` list, in PIPELINE_MODEL_STORAGE, and in each
+#       serving node's `service.model`
+#     * `image:` if your registry carries a different Python image
+#
+#   These values are also what a 26.4.x cluster accepted. If your cluster follows
+#   the published schema instead, change: `version` to your cluster's release,
 #   `ownership.domain` -> `ownership.domain_name` with `scope: project`, and
 #   `type: deployment` -> `type: serving` on the last two nodes. Export an
 #   existing pipeline from your cluster to see which shape it uses.
