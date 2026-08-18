@@ -3,9 +3,10 @@
 # See model-definition-fastapi.yaml — this is the same file with a different
 # argument to serve.sh.
 #
-# The health check uses /health rather than /, which docs_rag/ui.py registers on
-# Gradio's underlying FastAPI app: / requires the login, so probing it would
-# report an authenticated service as unhealthy.
+# The health check probes /. Gradio answers 200 there even when a login is
+# configured, because that is where it serves the login page. docs_rag/server.py
+# registers a matching / so one definition style works for both services;
+# docs_rag/ui.py also keeps /health on Gradio's underlying FastAPI app.
 models:
   - name: "docs-rag-gradio"
     model_path: "/pipeline/vfroot"
