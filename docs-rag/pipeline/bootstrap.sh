@@ -63,9 +63,23 @@ else
 fi
 STAMP="$VENV/.installed"
 
-if [ ! -x "$VENV/bin/python" ]; then
+# Ubuntu ships ensurepip in a separate python3-venv package and installing it
+# needs root we do not have, so `python3 -m venv` can create the environment and
+# then fail wiring pip into it. The venv module itself works, so fall back to
+# building without pip and bootstrapping it over the network. The pip check in
+# the guard matters: a half-built venv from such a failure leaves bin/python
+# behind, and testing only for that would skip the repair on the next run.
+if [ ! -x "$VENV/bin/python" ] || [ ! -x "$VENV/bin/pip" ]; then
     echo "[bootstrap] creating venv at $VENV"
-    python3 -m venv "$VENV"
+    rm -rf "$VENV"
+    if ! python3 -m venv "$VENV"; then
+        echo "[bootstrap] ensurepip unavailable — building venv without pip"
+        rm -rf "$VENV"
+        python3 -m venv --without-pip "$VENV"
+        curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+        "$VENV/bin/python" /tmp/get-pip.py --quiet
+        rm -f /tmp/get-pip.py
+    fi
 fi
 
 # Reinstall when the stamp is missing or older than the requirements file, so
