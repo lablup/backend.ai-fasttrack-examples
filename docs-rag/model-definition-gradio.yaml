@@ -9,7 +9,7 @@
 # docs_rag/ui.py also keeps /health on Gradio's underlying FastAPI app.
 models:
   - name: "docs-rag-gradio"
-    model_path: "/pipeline/vfroot"
+    model_path: "/models"
     service:
       # Install the dependencies before the service is expected to listen.
       # A fresh container has no venv, and building one inline kept the port

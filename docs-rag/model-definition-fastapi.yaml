@@ -1,14 +1,15 @@
 # Model service definition for the OpenAI-compatible API.
 #
-# Everything is read from /pipeline/vfroot, the one /pipeline mount that outlives
-# the run. A task output mount would serve the first read and then go stale, so a
-# service reading its code and indices from there dies partway through startup.
+# model_path is the model mount itself: the platform validates it, and a path
+# outside the mount gets the definition rejected in favour of the default
+# runtime. The start command is free to point elsewhere — the code and indices
+# live on /pipeline/vfroot, the one /pipeline mount that outlives the run.
 #
 # The service is chosen by the argument to serve.sh, not by an environment
 # variable, so this file and its Gradio twin cannot both start the same app.
 models:
   - name: "docs-rag-fastapi"
-    model_path: "/pipeline/vfroot"
+    model_path: "/models"
     service:
       # Install the dependencies before the service is expected to listen.
       # A fresh container has no venv, and building one inline kept the port
