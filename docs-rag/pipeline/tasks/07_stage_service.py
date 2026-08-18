@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
-"""Node 07 — arrange everything the two services need in the output mount.
+"""Node 07 — arrange everything the two services need in the persistent folder.
 
 In:   <data-root>/{03_indices,99_state}/ + this checkout
-Out:  <data-root>/
+Out:  $PIPELINE_VFROOT/
         docs-rag/                     this code tree (minus data and caches)
         docs-rag/pipeline/data/03_indices/   the indices to serve
         99_state/service_credentials.json    login for both services
-        model-definition-{fastapi,gradio}.yaml   if not already present
+        model-definition-{fastapi,gradio}.yaml   read by the deployment nodes
 
-This is a custom task, so it stages into its own output root like every other
-node in the chain. Deployment tasks can read the previous task's
-/pipeline/outputs, so that is enough for the services to find the code and the
-indices, and nothing here needs a model-storage mount or writes to a vfolder.
+Stage into /pipeline/vfroot, not /pipeline/outputs. A task's output mount is
+scoped to the task chain: a deployment container can read it once — fetching its
+model definition works — but the handle goes stale when the upstream container
+ends, and a service that keeps reading its code and indices then dies on ESTALE.
+The vfroot is the one /pipeline mount that outlives the run.
 
-Set PIPELINE_MODEL_ROOT to stage into model storage instead — the layout is
-identical, so the model definitions only need their start_command repointed.
-That was the only option before deployment tasks could see /pipeline, and it
-cost this node a mount that a custom task is not given by default.
+Set PIPELINE_MODEL_ROOT to stage into model storage instead. The layout is
+identical either way, so only the definitions' start_command has to agree.
 
 Staging the code too means the services start with no network access and no git.
 
@@ -36,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from docs_rag import credentials
 from pipeline.io import SourcesConfig
-from pipeline.paths import PROJECT_ROOT, STAGE_INDICES, STAGE_STATE
+from pipeline.paths import PROJECT_ROOT, STAGE_INDICES, STAGE_STATE, resolve_vfroot
 from pipeline.preflight import on_fasttrack, require_stage, require_writable
 from pipeline.runner import run_task
 
@@ -103,13 +102,26 @@ def handler(args: argparse.Namespace, cfg: SourcesConfig, data_root: Path) -> di
     # load, which lands before runner.load_dotenv() and would make a value set in
     # .env silently fall back to the default.
     override = os.environ.get("PIPELINE_MODEL_ROOT")
-    stage_root = Path(override) if override else data_root
     if override:
-        log.info("staging into PIPELINE_MODEL_ROOT=%s instead of the output root", stage_root)
+        stage_root = Path(override)
+        log.info("staging into PIPELINE_MODEL_ROOT=%s", stage_root)
         if not stage_root.exists() and not on_fasttrack():
             log.info("%s does not exist — skipping staging (local run)", stage_root)
             return {"staged": False, "reason": f"{stage_root} not present"}
+    else:
+        vfroot = resolve_vfroot()
+        if vfroot is None:
+            if on_fasttrack():
+                raise SystemExit(
+                    "PIPELINE_VFROOT is not set, but this is a FastTrack run. The "
+                    "services read their code and indices from /pipeline/vfroot for "
+                    "the whole of their lifetime — /pipeline/outputs goes stale when "
+                    "this container ends. Set PIPELINE_VFROOT=/pipeline/vfroot."
+                )
+            log.info("PIPELINE_VFROOT unset — staging into the output root (local run)")
+        stage_root = vfroot if vfroot is not None else data_root
 
+    stage_root.mkdir(parents=True, exist_ok=True)
     require_writable(stage_root, "stage-service")
 
     code_root = stage_root / "docs-rag"

@@ -8,9 +8,9 @@
 # argument rather than by an environment variable, because a cluster that drops
 # the YAML `envs` block would otherwise boot two copies of the same service.
 #
-# Serving containers can read the previous task's /pipeline/outputs, so the code
-# and indices are read from wherever the model definition points this script —
-# the named model vfolder need only carry the definition file itself.
+# The code and indices are read from wherever the model definition points this
+# script — /pipeline/vfroot, the one /pipeline mount that outlives the run. The
+# named model vfolder is a dummy; nothing is read from it.
 set -euo pipefail
 
 SERVICE="${1:-}"
@@ -25,9 +25,9 @@ esac
 shift
 
 # Resolve from this script's own location, which is correct wherever the model
-# definition launches it from — staged model storage, the pipeline output mount,
-# or a local checkout. Do not special-case /models: a stale staged copy there
-# would then win over the tree the definition actually pointed at.
+# definition launches it from — the persistent folder, model storage, or a local
+# checkout. Do not special-case any of them: a stale staged copy would then win
+# over the tree the definition actually pointed at.
 CODE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$CODE_ROOT"
 

@@ -1,18 +1,18 @@
 # Model service definition for the OpenAI-compatible API.
 #
-# Read from the model vfolder named by the task's service.model, which is the one
-# thing that must live there. The code and the indices are read from the pipeline
-# output mount instead, so stage-service no longer copies them into model storage.
+# Everything is read from /pipeline/vfroot, the one /pipeline mount that outlives
+# the run. A task output mount would serve the first read and then go stale, so a
+# service reading its code and indices from there dies partway through startup.
 #
 # The service is chosen by the argument to serve.sh, not by an environment
 # variable, so this file and its Gradio twin cannot both start the same app.
 models:
   - name: "docs-rag-fastapi"
-    model_path: "/pipeline/outputs"
+    model_path: "/pipeline/vfroot"
     service:
       start_command:
         - /bin/bash
-        - /pipeline/outputs/docs-rag/pipeline/serve.sh
+        - /pipeline/vfroot/docs-rag/pipeline/serve.sh
         - fastapi
       port: "8080"
       health_check:
