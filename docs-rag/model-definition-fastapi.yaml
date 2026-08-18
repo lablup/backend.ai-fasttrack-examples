@@ -14,7 +14,7 @@ models:
         - /bin/bash
         - /pipeline/outputs/docs-rag/pipeline/serve.sh
         - fastapi
-      port: "8000"
+      port: "8080"
       health_check:
         path: /health
         max_retries: 500

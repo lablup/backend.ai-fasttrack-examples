@@ -74,4 +74,11 @@ else
     echo "[serve] indices: $(ls "$DOCSRAG_INDICES" | tr '\n' ' ')"
 fi
 
-exec "$VENV/bin/python" -m "$MODULE" --host 0.0.0.0 --port 8000 "$@"
+# Backend.AI routes to 8080 when a deployment has no model definition to say
+# otherwise, so default to that: the service then answers on the expected port
+# whether or not the definition was found. The definitions below pin the same
+# value, so both paths agree rather than one silently listening elsewhere.
+SERVICE_PORT="${DOCSRAG_PORT:-8080}"
+echo "[serve] port=$SERVICE_PORT"
+
+exec "$VENV/bin/python" -m "$MODULE" --host 0.0.0.0 --port "$SERVICE_PORT" "$@"
