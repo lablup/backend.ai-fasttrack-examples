@@ -8,11 +8,11 @@
 # report an authenticated service as unhealthy.
 models:
   - name: "docs-rag-gradio"
-    model_path: "/models"
+    model_path: "/pipeline/outputs"
     service:
       start_command:
         - /bin/bash
-        - /models/docs-rag/pipeline/serve.sh
+        - /pipeline/outputs/docs-rag/pipeline/serve.sh
         - gradio
       port: "8000"
       health_check:

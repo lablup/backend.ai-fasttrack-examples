@@ -1,19 +1,18 @@
 # Model service definition for the OpenAI-compatible API.
 #
-# The stage-service node copies this into model storage alongside the code and
-# the indices, so it is normally there before the deployment starts. Upload your
-# own copy to model storage first if you want to override it — the staging node
-# will not overwrite an existing file.
+# Read from the model vfolder named by the task's service.model, which is the one
+# thing that must live there. The code and the indices are read from the pipeline
+# output mount instead, so stage-service no longer copies them into model storage.
 #
 # The service is chosen by the argument to serve.sh, not by an environment
 # variable, so this file and its Gradio twin cannot both start the same app.
 models:
   - name: "docs-rag-fastapi"
-    model_path: "/models"
+    model_path: "/pipeline/outputs"
     service:
       start_command:
         - /bin/bash
-        - /models/docs-rag/pipeline/serve.sh
+        - /pipeline/outputs/docs-rag/pipeline/serve.sh
         - fastapi
       port: "8000"
       health_check:

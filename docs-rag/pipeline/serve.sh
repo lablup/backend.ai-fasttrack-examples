@@ -8,9 +8,9 @@
 # argument rather than by an environment variable, because a cluster that drops
 # the YAML `envs` block would otherwise boot two copies of the same service.
 #
-# A serving container sees model storage at /models and nothing of /pipeline, so
-# everything here comes from /models — the code, the indices and the credentials
-# were all put there by the stage-service node.
+# Serving containers can read the previous task's /pipeline/outputs, so the code
+# and indices are read from wherever the model definition points this script —
+# the named model vfolder need only carry the definition file itself.
 set -euo pipefail
 
 SERVICE="${1:-}"
@@ -24,13 +24,11 @@ case "$SERVICE" in
 esac
 shift
 
-# Staged copy first, then a local checkout — so the same script serves a
-# deployment and a laptop.
-if [ -d "/models/docs-rag" ]; then
-    CODE_ROOT="/models/docs-rag"
-else
-    CODE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fi
+# Resolve from this script's own location, which is correct wherever the model
+# definition launches it from — staged model storage, the pipeline output mount,
+# or a local checkout. Do not special-case /models: a stale staged copy there
+# would then win over the tree the definition actually pointed at.
+CODE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$CODE_ROOT"
 
 echo "[serve] service=$SERVICE code_root=$CODE_ROOT"
@@ -41,9 +39,21 @@ echo "[serve] python=$(python3 --version 2>&1)"
 VENV="${HOME:-/tmp}/.docsrag-service-venv"
 STAMP="$VENV/.installed"
 
-if [ ! -x "$VENV/bin/python" ]; then
+# Ubuntu ships ensurepip separately and the container has no root to install it,
+# so venv creation can succeed at making the tree and fail wiring pip into it.
+# Mirrors pipeline/bootstrap.sh — pip is in the guard because a failed attempt
+# leaves bin/python behind and would otherwise skip the repair.
+if [ ! -x "$VENV/bin/python" ] || [ ! -x "$VENV/bin/pip" ]; then
     echo "[serve] creating venv at $VENV"
-    python3 -m venv "$VENV"
+    rm -rf "$VENV"
+    if ! python3 -m venv "$VENV"; then
+        echo "[serve] ensurepip unavailable — building venv without pip"
+        rm -rf "$VENV"
+        python3 -m venv --without-pip "$VENV"
+        curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+        "$VENV/bin/python" /tmp/get-pip.py --quiet
+        rm -f /tmp/get-pip.py
+    fi
 fi
 if [ ! -f "$STAMP" ] || [ requirements-service.txt -nt "$STAMP" ]; then
     echo "[serve] installing service dependencies"
