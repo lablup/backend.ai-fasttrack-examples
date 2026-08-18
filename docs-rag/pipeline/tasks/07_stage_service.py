@@ -106,9 +106,11 @@ def mirror_to_model_storage(stage_root: Path) -> list[str]:
     Non-fatal when model storage is absent: a batch-only run is legitimate, and
     the deployment nodes report the missing definition clearly enough.
     """
-    # Resolved here rather than imported, for the same reason the staging root
-    # is: settings binds the environment at module load, before load_dotenv().
-    model_root = Path(os.environ.get("PIPELINE_MODEL_ROOT", "/models"))
+    # Its own variable, not PIPELINE_MODEL_ROOT: that one moves the staging root,
+    # while this is only where the small files are mirrored. A batch task mounts
+    # the model vfolder by name, which lands it at /home/work/<name> rather than
+    # at /models, so the two mounts of the same folder need separate paths.
+    model_root = Path(os.environ.get("PIPELINE_MODEL_STORAGE", "/models"))
     if model_root == stage_root:
         log.info("staging root is model storage — nothing to mirror")
         return []
@@ -116,8 +118,9 @@ def mirror_to_model_storage(stage_root: Path) -> list[str]:
         log.warning(
             "%s is not mounted writable — skipping the model-storage copy. The "
             "deployment nodes resolve model_definition_path relative to this "
-            "mount, so they will not find their definition. Attach the model "
-            "vfolder to this task if you are deploying.", model_root,
+            "mount, so they will not find their definition. Add the model vfolder "
+            "to this task's mounts: list and point PIPELINE_MODEL_STORAGE at it "
+            "if you are deploying.", model_root,
         )
         return []
 
