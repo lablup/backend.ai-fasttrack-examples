@@ -1,0 +1,415 @@
+# docs-rag — documentation ingestion, evaluation and serving on Backend.AI FastTrack.
+#
+#   fetch-code -> clone-docs -> convert-docs -> build-indices -> verify-indices
+#     -> evaluate -> publish -> stage-service -> { serve-fastapi, serve-gradio }
+#
+# PORTABILITY
+#   This file names no vFolder. vFolder names are account-scoped, so a pipeline
+#   that hardcodes one cannot be shared. Instead:
+#     * the code arrives by `git clone` in the fetch-code node, into
+#       /pipeline/vfroot, which FastTrack creates automatically;
+#     * the indices reach the two services through model storage, which you
+#       select in the Create Pipeline dialog and which auto-mounts at /models.
+#
+# WHAT YOU NEED TO RUN IT
+#   1. This file, uploaded via Create Pipeline.
+#   2. A model storage folder, selected in that same dialog. Upload your `.env`
+#      into it (copy .env.example and fill in OPENAI_API_KEY).
+#   3. Nothing else — model-definition-*.yaml is staged automatically by the
+#      stage-service node, though you can upload your own to override it.
+#
+# ADAPTING TO YOUR CLUSTER
+#   Three things are specific to the cluster this was verified on, and every one
+#   of them is a straight find-and-replace:
+#     * `project: H100` and `scaling-group: nvidia-H100` on all ten tasks
+#     * `your_model_folder` — the empty model vFolder you created, named in the
+#       stage-service `mounts:` list, in PIPELINE_MODEL_STORAGE, and in each
+#       serving node's `service.model`
+#     * `image:` if your registry carries a different Python image
+#
+#   These values are also what a 26.4.x cluster accepted. If your cluster follows
+#   the published schema instead, change: `version` to your cluster's release,
+#   `ownership.domain` -> `ownership.domain_name` with `scope: project`, and
+#   `type: deployment` -> `type: serving` on the last two nodes. Export an
+#   existing pipeline from your cluster to see which shape it uses.
+version: 26.4.4rc6
+name: docs-rag
+description: Clone Backend.AI OSS docs, build hybrid FAISS+BM25 indices, evaluate answer quality, and serve a Gradio UI and an OpenAI-compatible API.
+ownership:
+  domain: default
+  scope: user
+
+# CONFIGURATION
+#
+# This variant keeps your API key out of the pipeline definition — it reads it
+# from the Secrets store, or from a .env file you upload to model storage.
+# If you would rather type every value directly into the pipeline and upload
+# nothing at all, use fasttrack_pipeline_inline.yaml instead.
+#
+# Every setting below can still be filled in right here: type a value after the
+# colon and it applies to every task. Anything left blank falls through to your
+# .env, and then to the built-in default, so a blank line never overrides a
+# real value.
+#
+# Secrets have three routes: `${{ secrets.NAME }}` as shown, a literal value,
+# or blank plus a .env. An unresolved placeholder counts as blank, so a
+# reference to a secret you never created falls through instead of breaking the
+# run.
+#
+# Some clusters do not propagate this block into the container at all. If a task
+# logs "missing required env var", that is what happened — use the .env route.
+environment:
+  envs:
+    # --- required ---------------------------------------------------------
+    # Create a secret named OPENAI_API_KEY, or replace this with the literal
+    # key, or delete the value and put it in your .env.
+    OPENAI_API_KEY: "${{ secrets.OPENAI_API_KEY }}"
+
+    # --- LLM and embeddings ----------------------------------------------
+    # Any OpenAI-compatible endpoint: vLLM, a Backend.AI model service, ...
+    # Blank means api.openai.com.
+    OPENAI_BASE_URL: ""
+    LLM_MODEL: ""                 # default: gpt-4.1
+    EMBEDDING_MODEL: ""           # default: text-embedding-3-small
+    # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+    ENABLE_THINKING: ""           # Qwen CoT; only used with OPENAI_BASE_URL
+    TEMPERATURE: ""               # default: 0.2
+    MAX_TOKENS: ""                # default: 4096
+
+    # --- indexing and retrieval ------------------------------------------
+    CHUNK_SIZE: ""                # default: 1000 tokens
+    CHUNK_OVERLAP: ""             # default: 100 tokens
+    K_PER_PROJECT: ""             # default: 10 chunks pulled per corpus
+    GLOBAL_TOP_K: ""              # default: 15 chunks sent to the model
+    RRF_K: ""                     # default: 60
+    MAX_L2: ""                    # default: 1.5 confidence cutoff
+    MAX_CHARS_PER_CHUNK: ""       # default: 4000, truncation per excerpt
+
+    # --- service access ---------------------------------------------------
+    # Set ALL THREE to pin the login across runs. Leave all three blank and the
+    # stage-service node generates fresh ones per run and prints them in its
+    # log. Partial values are ignored on purpose.
+    GRADIO_USERNAME: ""
+    GRADIO_PASSWORD: ""
+    API_KEY: ""
+
+    # --- evaluation -------------------------------------------------------
+    EVAL_JUDGE_MODEL: ""          # default: gpt-4.1
+    EVAL_SAMPLE_SIZE: ""          # blank or 0 = score every fixture question
+
+    # --- cloning private sources -----------------------------------------
+    # Only needed if you add a private repo to sources.yaml.
+    GITHUB_TOKEN: ""
+
+    # --- pin the example revision ----------------------------------------
+    # A tag or branch of this repo for fetch-code to clone. Blank = main.
+    DOCSRAG_REF: ""
+
+    # --- mount points -----------------------------------------------------
+    # FastTrack's layout. Change these only if your cluster differs.
+    PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+    PIPELINE_INPUT_ROOT: /pipeline/input1
+    PIPELINE_VFROOT: /pipeline/vfroot
+    # Where stage-service mirrors the model definitions, the generated .env and
+    # the credentials. Must match the mounts: entry on that task.
+    PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+    # Where fetch-code puts the checkout every other node runs from.
+    DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+
+params: []
+
+tasks:
+  # ---------------------------------------------------------------------
+  - name: fetch-code
+    description: Clone this examples repo into the shared pipeline folder, so every later node runs the same revision.
+    type: custom
+    dependencies: []
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 2
+      mem: 4g
+    resource_opts:
+      shmem: 256m
+    # Pure shell: this is the one node that cannot use the Python helpers,
+    # because it is the node that fetches them.
+    command: |-
+      set -eu
+      SRC="${PIPELINE_VFROOT:-/pipeline/vfroot}/src"
+      rm -rf "$SRC"
+      mkdir -p "$(dirname "$SRC")"
+      git clone --depth 1 --branch "${DOCSRAG_REF:-main}" \
+        https://github.com/lablup/backend.ai-fasttrack-examples.git "$SRC"
+      echo "checkout: $(git -C "$SRC" log -1 --format='%h %ad %s' --date=short)"
+      ls -la "$SRC/docs-rag"
+
+  # ---------------------------------------------------------------------
+  - name: clone-docs
+    description: Clone every documentation repo declared in pipeline/config/sources.yaml.
+    type: custom
+    dependencies:
+      - fetch-code
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 4
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/01_clone_sources.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: convert-docs
+    description: Convert the selected RST to markdown with pandoc and copy markdown through.
+    type: custom
+    dependencies:
+      - clone-docs
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 4
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/02_convert_docs.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: build-indices
+    description: Chunk, embed, and write a FAISS index plus a BM25 sidecar per source.
+    type: custom
+    dependencies:
+      - convert-docs
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 4
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    retry:
+      # The only node that depends on a third-party API for every chunk.
+      max_attempts: 2
+      delay: 30
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/03_build_indices.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: verify-indices
+    description: Dual canary per source — a close semantic hit and at least one lexical hit.
+    type: custom
+    dependencies:
+      - build-indices
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 2
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/04_verify_indices.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: evaluate
+    description: Score end-to-end answer quality against the committed question set.
+    type: custom
+    dependencies:
+      - verify-indices
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 2
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/05_evaluate.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: publish
+    description: Copy indices and reports into the persistent pipeline folder.
+    type: custom
+    dependencies:
+      - evaluate
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 2
+      mem: 4g
+    resource_opts:
+      shmem: 256m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/06_publish.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: stage-service
+    description: Stage the code, the indices and this run's credentials into model storage.
+    type: custom
+    dependencies:
+      - publish
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 2
+      mem: 4g
+    resource_opts:
+      shmem: 256m
+    # The deployment nodes resolve model_definition_path against their model
+    # mount, so the definitions have to be written into that vfolder. Mounted by
+    # name it lands at /home/work/<name> here; the serving side sees the same
+    # folder at /models. Rename both this and PIPELINE_MODEL_STORAGE if your
+    # model vfolder is called something else.
+    mounts:
+      - your_model_folder
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/07_stage_service.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: serve-fastapi
+    description: OpenAI-compatible chat completions endpoint over the indexed docs.
+    type: deployment
+    dependencies:
+      - stage-service
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 2
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    service:
+      name: docs-rag-api
+      # The vfolder stage-service mirrored the definition into. Nothing else is
+      # read from it — the code and indices come from /pipeline/vfroot.
+      model: your_model_folder
+      model_mount_destination: /models
+      model_definition_path: model-definition-fastapi.yaml
+      runtime_variant: custom
+      replicas: 1
+      open_to_public: true
+      ephemeral: false
+      max_surge: 1
+      max_unavailable: 0
+
+  # ---------------------------------------------------------------------
+  - name: serve-gradio
+    description: Gradio chat UI over the same indices.
+    type: deployment
+    dependencies:
+      - stage-service
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs: {}
+    resources:
+      cpu: 2
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    service:
+      name: docs-rag-ui
+      # The vfolder stage-service mirrored the definition into. Nothing else is
+      # read from it — the code and indices come from /pipeline/vfroot.
+      model: your_model_folder
+      model_mount_destination: /models
+      model_definition_path: model-definition-gradio.yaml
+      runtime_variant: custom
+      replicas: 1
+      open_to_public: true
+      ephemeral: false
+      max_surge: 1
+      max_unavailable: 0

@@ -1,0 +1,13 @@
+# Runtime data: clones, converted markdown, indices, reports. All regenerated
+# by the pipeline, and the clones alone run to hundreds of megabytes.
+pipeline/data/
+pipeline/vfroot/
+
+# Secrets
+.env
+
+# Environments and caches
+.venv*
+__pycache__/
+*.pyc
+.pytest_cache/

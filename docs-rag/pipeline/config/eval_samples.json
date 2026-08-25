@@ -1,0 +1,122 @@
+[
+  {
+    "question": "Where does Backend.AI keep cluster-level configuration, and how does a new agent join the cluster?",
+    "answer": "Cluster-level configuration lives in an Etcd service. Etcd also serves as the service-discovery mechanism: when a new agent boots it registers itself with the cluster manager through Etcd. For production deployments an Etcd cluster of an odd number of nodes (3, 5, or more) is recommended so it stays highly available.",
+    "project": "backendai",
+    "source": "docs/concepts/configuration.rst"
+  },
+  {
+    "question": "What are the local TOML configuration files for Backend.AI components called, and where are they searched for?",
+    "answer": "Each service component reads a TOML file named after itself - manager.toml, agent.toml, storage-proxy.toml. They hold node-specific settings such as the agent name, its resource group, system limits and the IP address and TCP ports to bind. The search paths, in order, are the current working directory, ~/.config/backend.ai, and /etc/backend.ai.",
+    "project": "backendai",
+    "source": "docs/concepts/configuration.rst"
+  },
+  {
+    "question": "What is the difference between a single-node and a multi-node cluster session?",
+    "answer": "A cluster session is a session with more than one kernel (container). With the single-node option every container is placed on one agent, and they share a private bridge network in addition to the default network so they can talk to each other privately, with no firewall restrictions on that bridge. A multi-node cluster session spreads the containers across several agents instead.",
+    "project": "backendai",
+    "source": "docs/concepts/computing.rst"
+  },
+  {
+    "question": "What is a resource slot in Backend.AI?",
+    "answer": "A resource slot is Backend.AI's abstraction over a type of computing resource. Each slot name has two parts, the device name and the slot name - for example a CUDA device contributes slots whose device part is the accelerator and whose slot part is the unit being counted. Sessions request resources by slot, which lets the scheduler treat heterogeneous accelerators uniformly.",
+    "project": "backendai",
+    "source": "docs/concepts/resources.rst"
+  },
+  {
+    "question": "Why do I need to mount a folder into a compute session, and where do I do it in the web UI?",
+    "answer": "A compute session gives you /home/work/, but anything created there disappears when the session is terminated, because sessions are created and deleted along with their container. To keep data you mount a separate storage folder into the container and write inside the mount point. In the session launcher you pick the folders on the 'Data & Storage' step, after 'Session Type' and 'Environments & Resource allocation'. Only folders mountable by the current user are listed - folders belonging to other projects are not shown.",
+    "project": "webui",
+    "source": "docs/mount_vfolder/mount_vfolder.rst"
+  },
+  {
+    "question": "How do I share one of my storage folders with another user, and what permission levels can I give them?",
+    "answer": "Go to the Data page, find the folder, and click the 'share' button in its Control column. In the 'Invite User' section of the dialog enter the other user's email address and choose a permission level: 'Read Only' lets them view the folder but not modify it, and 'Read & Write' lets them do both. Note that sharing fails if the recipient already has a folder with the same name.",
+    "project": "webui",
+    "source": "docs/share_vfolder/share_vfolder.rst"
+  },
+  {
+    "question": "From which Backend.AI version is the Model Service feature officially supported, and what does it add over an ordinary training session?",
+    "answer": "Model Service is officially supported from version 23.09 onward, and it is an Enterprise-only feature. It extends ordinary compute sessions with automated maintenance, scaling, and a permanent port and endpoint address mapping suitable for production. An administrator specifies the scaling parameters and no longer has to create or delete compute sessions by hand. On 23.03 and earlier you can approximate it by configuring a training compute session manually.",
+    "project": "webui",
+    "source": "docs/model_serving/model_serving.rst"
+  },
+  {
+    "question": "How do I open an SSH or SFTP connection to a running compute session?",
+    "answer": "Create the compute session, then click the app icon (the first button) in the Control column and choose the SSH / SFTP icon. That starts a daemon inside the container and the Web-UI talks to it through a local proxy. Until you click that icon no connection is possible, and the icon has to be clicked again after restarting the Web-UI app because the proxy connection is reinitialised. From 24.03 this works in both the browser and the desktop app; on 23.09 and earlier the desktop app is required.",
+    "project": "webui",
+    "source": "docs/sftp_to_container/sftp_to_container.rst"
+  },
+  {
+    "question": "What is bssh and what is it for?",
+    "answer": "bssh (Broadcast SSH) is a high-performance SSH client written in Rust on top of russh, developed as part of the Backend.AI project. It uses SSH-compatible command-line syntax and works both for a single host and for running commands across a whole cluster in parallel. Alongside ordinary SSH features it offers pdsh-style hostlist expressions, an interactive TUI for watching multi-node runs, cluster definitions in configuration files, and port forwarding and jump-host support.",
+    "project": "bssh",
+    "source": "README.md"
+  },
+  {
+    "question": "How do I write a compact host specification in bssh instead of listing every node?",
+    "answer": "bssh supports pdsh-style hostlist range expressions. Writing node[1-5] expands to node1 through node5, and ranges can be combined across components, as in rack[1-2]-node[1-3]. This lets you address a whole cluster without enumerating the hosts.",
+    "project": "bssh",
+    "source": "README.md"
+  },
+  {
+    "question": "How do I make bssh stop as soon as one host fails instead of continuing?",
+    "answer": "Use the -k flag, which enables fail-fast mode and stops on the first failure. The flag is named for pdsh compatibility, matching the behaviour users expect when migrating from pdsh.",
+    "project": "bssh",
+    "source": "README.md"
+  },
+  {
+    "question": "Does bssh run natively on Windows?",
+    "answer": "No. Linux and macOS are fully supported, including SSH agent authentication and PTY-based interactive sessions, but the bssh crate does not currently build for a native Windows target: it depends unconditionally on Unix-only crates (nix, signal-hook, libc) and has un-gated PTY and agent code, with no Windows CI job or release artifact. The documented workaround is to run bssh under WSL2.",
+    "project": "bssh",
+    "source": "README.md"
+  },
+  {
+    "question": "What hardware can all-smi monitor?",
+    "answer": "all-smi monitors GPU and NPU hardware across systems. It supports NVIDIA GPUs, AMD GPUs, NVIDIA Jetson platforms, Apple Silicon GPUs, Intel Arc/Iris Xe/Xe client GPUs, Intel Gaudi NPUs, Google Cloud TPUs, Tenstorrent NPUs, Rebellions NPUs and Furiosa NPUs, reporting utilisation, memory usage, temperature and power consumption in real time.",
+    "project": "all-smi",
+    "source": "README.md"
+  },
+  {
+    "question": "How do I use all-smi to watch several remote machines at once?",
+    "answer": "Use the view command with API endpoints, either listing them directly - all-smi view --hosts http://node1:9090 http://node2:9090 - or pointing at a file of hosts with all-smi view --hostfile hosts.csv. Each monitored machine needs to be exposing metrics, which you start with all-smi api --port 9090 on that machine.",
+    "project": "all-smi",
+    "source": "README.md"
+  },
+  {
+    "question": "How do I get a one-off machine-readable dump of all-smi metrics for a script?",
+    "answer": "Run all-smi snapshot, which produces a one-shot JSON, CSV or Prometheus dump rather than starting the interactive terminal UI. For continuous scraping, all-smi api --port 9090 exposes a metrics server that Prometheus can poll.",
+    "project": "all-smi",
+    "source": "README.md"
+  },
+  {
+    "question": "How do I install all-smi on macOS?",
+    "answer": "The easiest route on macOS (and Linux) is Homebrew: brew tap lablup/tap followed by brew install all-smi. Ubuntu users can instead add the PPA with sudo add-apt-repository ppa:lablup/backend-ai and install with apt; Debian-based systems can download a .deb from the releases page, and pre-built binaries and a build-from-source path are also available. Note that local monitoring on macOS requires sudo.",
+    "project": "all-smi",
+    "source": "README.md"
+  },
+  {
+    "question": "What executables does mlxcel build and what does each one do?",
+    "answer": "mlxcel builds two native executables from the root Rust package: mlxcel, the command-line tool for generation, model listing and downloads; and mlxcel-server, an HTTP server exposing OpenAI and llama-server-style endpoints. Neither needs Python or Node.js at runtime, although they are not fully static binaries - the platform's GPU and runtime libraries are still required.",
+    "project": "mlxcel",
+    "source": "docs/installation.md"
+  },
+  {
+    "question": "Which platforms does mlxcel actually target, and with which cargo features?",
+    "answer": "macOS on Apple Silicon is the primary, main development and validation target, built with the metal and accelerate features. Linux with NVIDIA CUDA is secondary, built with the cuda feature, and release builds currently target CUDA 13-era systems. Linux CPU-only is not a release target and is not a validated inference configuration, and Windows is not part of the documented installation path.",
+    "project": "mlxcel",
+    "source": "docs/installation.md"
+  },
+  {
+    "question": "In mlxcel, if a setting has both a CLI flag and an environment variable, which one wins?",
+    "answer": "The CLI flag takes precedence, unless that flag's own help text says otherwise. Environment variables are documented as the option for containers, service units and repeatable benchmark runs, but they are process-wide and several low-level knobs are read once and cached on first use, so they must be set before mlxcel or mlxcel-server starts.",
+    "project": "mlxcel",
+    "source": "docs/environment-variables.md"
+  },
+  {
+    "question": "How are boolean environment variables parsed in mlxcel?",
+    "answer": "Parsing is deliberately not uniform. Documented server options generally accept true/false, 1/0, yes/no and on/off. Many diagnostic switches are presence-based, so setting them to any value at all enables the behaviour. Variables whose documentation says 'falsy disables' treat 0, false, off or no as disabled. Variables marked advanced or diagnostic are not a stable public API.",
+    "project": "mlxcel",
+    "source": "docs/environment-variables.md"
+  }
+]

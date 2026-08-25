@@ -1,0 +1,1048 @@
+# docs-rag — self-contained variant. Everything is configured in this one file.
+#
+#   fetch-code → clone-docs → convert-docs → build-indices → verify-indices
+#     → evaluate → publish → stage-service → { serve-fastapi, serve-gradio }
+#
+# USE THIS FILE IF you want to type your settings straight into the pipeline and
+# upload nothing. Use fasttrack_pipeline.yaml instead if you would rather keep
+# your API key in the Secrets store or in a .env file.
+#
+# TO RUN
+#   1. Fill in OPENAI_API_KEY below. That is the only required value — every
+#      other setting is already filled in with its default.
+#   2. Create the pipeline from this file, selecting a model storage folder in
+#      the dialog. Nothing needs to be uploaded into it; the pipeline writes the
+#      indices and the services' code there itself. (Model storage is required
+#      because a Backend.AI model service always mounts one.)
+#   3. Dry Run, then Run.
+#
+# No vFolder is named anywhere in this file, so it runs under any account.
+#
+# Everything from `params:` down is a verbatim copy of the task graph in
+# fasttrack_pipeline.yaml. Keep the two in step when you change the DAG —
+# tests/unit/test_pipeline_wiring.py fails if they diverge.
+#
+# ⚠ This file will contain your API key once you fill it in. Treat it as a
+#   secret: do not commit it or paste it into a ticket. If that matters to you,
+#   use fasttrack_pipeline.yaml with ${{ secrets.OPENAI_API_KEY }} instead.
+#
+# ⚠ Some clusters do not propagate `environment.envs` into the container. If a
+#   task logs "missing required env var", that is what happened — that cluster
+#   needs the .env route in fasttrack_pipeline.yaml.
+version: 26.4.4rc6
+name: docs-rag
+description: Clone Backend.AI OSS docs, build hybrid FAISS+BM25 indices, evaluate answer quality, and serve a Gradio UI and an OpenAI-compatible API.
+ownership:
+  domain: default
+  scope: user
+
+environment:
+  envs:
+    OPENAI_API_KEY: ""
+
+    # === everything below is optional; the values shown are the defaults ==
+
+    # --- LLM and embeddings ----------------------------------------------
+    # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+    # a Backend.AI model service to use your own endpoint.
+    OPENAI_BASE_URL: ""
+    LLM_MODEL: "gpt-4.1"
+    # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+    EMBEDDING_MODEL: "text-embedding-3-small"
+    # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+    ENABLE_THINKING: "false"
+    TEMPERATURE: "0.2"
+    MAX_TOKENS: "4096"
+
+    # --- indexing ---------------------------------------------------------
+    CHUNK_SIZE: "1000"
+    CHUNK_OVERLAP: "100"
+
+    # --- retrieval --------------------------------------------------------
+    # Chunks pulled from each corpus before pooling.
+    K_PER_PROJECT: "10"
+    # Chunks sent to the model.
+    GLOBAL_TOP_K: "15"
+    # Reciprocal Rank Fusion constant; higher flattens the weighting.
+    RRF_K: "60"
+    # L2 confidence cutoff, and the verify node's canary threshold.
+    MAX_L2: "1.5"
+    MAX_CHARS_PER_CHUNK: "4000"
+
+    # --- service access ---------------------------------------------------
+    # Leave all three blank and the stage-service node generates fresh ones for
+    # each run and prints them at the end of its log. Fill in all three to pin
+    # them; partial values are ignored on purpose, since a half-filled login
+    # would leave a service half-protected.
+    GRADIO_USERNAME: ""
+    GRADIO_PASSWORD: ""
+    API_KEY: ""
+
+    # --- evaluation -------------------------------------------------------
+    EVAL_JUDGE_MODEL: "gpt-4.1"
+    # 0 scores every question in the committed fixture.
+    EVAL_SAMPLE_SIZE: "0"
+
+    # --- cloning private sources -----------------------------------------
+    # Only needed if you add a private repo to pipeline/config/sources.yaml.
+    # All five defaults are public.
+    GITHUB_TOKEN: ""
+
+    # --- pin the example revision ----------------------------------------
+    # A tag or branch of the examples repo for fetch-code to clone.
+    DOCSRAG_REF: "main"
+
+    # --- mount points -----------------------------------------------------
+    # FastTrack's layout. Change these only if your cluster differs.
+    PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+    PIPELINE_INPUT_ROOT: /pipeline/input1
+    PIPELINE_VFROOT: /pipeline/vfroot
+    # Where stage-service mirrors the model definitions, .env and
+    # credentials. A batch mount by name lands at /home/work/<name>.
+    PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+    # Where fetch-code puts the checkout every other node runs from.
+    DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+
+params: []
+
+tasks:
+  # ---------------------------------------------------------------------
+  - name: fetch-code
+    description: Clone this examples repo into the shared pipeline folder, so every later node runs the same revision.
+    type: custom
+    dependencies: []
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 2
+      mem: 4g
+    resource_opts:
+      shmem: 256m
+    # Pure shell: this is the one node that cannot use the Python helpers,
+    # because it is the node that fetches them.
+    command: |-
+      set -eu
+      SRC="${PIPELINE_VFROOT:-/pipeline/vfroot}/src"
+      rm -rf "$SRC"
+      mkdir -p "$(dirname "$SRC")"
+      git clone --depth 1 --branch "${DOCSRAG_REF:-main}" \
+        https://github.com/lablup/backend.ai-fasttrack-examples.git "$SRC"
+      echo "checkout: $(git -C "$SRC" log -1 --format='%h %ad %s' --date=short)"
+      ls -la "$SRC/docs-rag"
+
+  # ---------------------------------------------------------------------
+  - name: clone-docs
+    description: Clone every documentation repo declared in pipeline/config/sources.yaml.
+    type: custom
+    dependencies:
+      - fetch-code
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 4
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/01_clone_sources.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: convert-docs
+    description: Convert the selected RST to markdown with pandoc and copy markdown through.
+    type: custom
+    dependencies:
+      - clone-docs
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 4
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/02_convert_docs.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: build-indices
+    description: Chunk, embed, and write a FAISS index plus a BM25 sidecar per source.
+    type: custom
+    dependencies:
+      - convert-docs
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 4
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    retry:
+      # The only node that depends on a third-party API for every chunk.
+      max_attempts: 2
+      delay: 30
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/03_build_indices.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: verify-indices
+    description: Dual canary per source — a close semantic hit and at least one lexical hit.
+    type: custom
+    dependencies:
+      - build-indices
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 2
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/04_verify_indices.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: evaluate
+    description: Score end-to-end answer quality against the committed question set.
+    type: custom
+    dependencies:
+      - verify-indices
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 2
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/05_evaluate.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: publish
+    description: Copy indices and reports into the persistent pipeline folder.
+    type: custom
+    dependencies:
+      - evaluate
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 2
+      mem: 4g
+    resource_opts:
+      shmem: 256m
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/06_publish.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: stage-service
+    description: Stage the code, the indices and this run's credentials into model storage.
+    type: custom
+    dependencies:
+      - publish
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 2
+      mem: 4g
+    resource_opts:
+      shmem: 256m
+    # The deployment nodes read their model definition from this vfolder. Mounted
+    # by name it lands at /home/work/your_model_folder here, while the serving side
+    # mounts the same folder at /models — hence PIPELINE_MODEL_STORAGE below.
+    mounts:
+      - your_model_folder
+    command: |-
+      set -eu
+      cd "${DOCSRAG_SRC:-/pipeline/vfroot/src/docs-rag}"
+      bash pipeline/bootstrap.sh pipeline/tasks/07_stage_service.py --project all
+
+  # ---------------------------------------------------------------------
+  - name: serve-fastapi
+    description: OpenAI-compatible chat completions endpoint over the indexed docs.
+    type: deployment
+    dependencies:
+      - stage-service
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 2
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    service:
+      name: docs-rag-api
+      # A dummy: the definition is read from the pipeline output mount, so this
+      # folder need only exist. Backend.AI always mounts one for a model service.
+      model: your_model_folder
+      model_mount_destination: /models
+      # Relative — FastTrack resolves this against model_mount_destination, so an
+      # absolute path here becomes /models/<path> and is never found.
+      # stage-service mirrors the definition into model storage each run, which
+      # is why this vfolder must be mounted on that task too.
+      model_definition_path: model-definition-fastapi.yaml
+      runtime_variant: custom
+      replicas: 1
+      open_to_public: true
+      ephemeral: false
+      max_surge: 1
+      max_unavailable: 0
+
+  # ---------------------------------------------------------------------
+  - name: serve-gradio
+    description: Gradio chat UI over the same indices.
+    type: deployment
+    dependencies:
+      - stage-service
+    skip: false
+    continue_on_failure: false
+    cluster_mode: single-node
+    cluster_size: 1
+    module_uri: ''
+    environment:
+      project: H100
+      scaling-group: nvidia-H100
+      image: cr.backend.ai/testing/python:3.11-ubuntu22.04
+      envs:
+        OPENAI_API_KEY: ""
+
+        # === everything below is optional; the values shown are the defaults ==
+
+        # --- LLM and embeddings ----------------------------------------------
+        # Blank OPENAI_BASE_URL means api.openai.com. Point it at a vLLM server or
+        # a Backend.AI model service to use your own endpoint.
+        OPENAI_BASE_URL: ""
+        LLM_MODEL: "gpt-4.1"
+        # Changing EMBEDDING_MODEL after the indices exist needs a full rebuild.
+        EMBEDDING_MODEL: "text-embedding-3-small"
+        # Qwen-style chain of thought. Only applied when OPENAI_BASE_URL is set.
+        ENABLE_THINKING: "false"
+        TEMPERATURE: "0.2"
+        MAX_TOKENS: "4096"
+
+        # --- indexing ---------------------------------------------------------
+        CHUNK_SIZE: "1000"
+        CHUNK_OVERLAP: "100"
+
+        # --- retrieval --------------------------------------------------------
+        # Chunks pulled from each corpus before pooling.
+        K_PER_PROJECT: "10"
+        # Chunks sent to the model.
+        GLOBAL_TOP_K: "15"
+        # Reciprocal Rank Fusion constant; higher flattens the weighting.
+        RRF_K: "60"
+        # L2 confidence cutoff, and the verify node's canary threshold.
+        MAX_L2: "1.5"
+        MAX_CHARS_PER_CHUNK: "4000"
+
+        # --- service access ---------------------------------------------------
+        # Leave all three blank and the stage-service node generates fresh ones for
+        # each run and prints them at the end of its log. Fill in all three to pin
+        # them; partial values are ignored on purpose, since a half-filled login
+        # would leave a service half-protected.
+        GRADIO_USERNAME: ""
+        GRADIO_PASSWORD: ""
+        API_KEY: ""
+
+        # --- evaluation -------------------------------------------------------
+        EVAL_JUDGE_MODEL: "gpt-4.1"
+        # 0 scores every question in the committed fixture.
+        EVAL_SAMPLE_SIZE: "0"
+
+        # --- cloning private sources -----------------------------------------
+        # Only needed if you add a private repo to pipeline/config/sources.yaml.
+        # All five defaults are public.
+        GITHUB_TOKEN: ""
+
+        # --- pin the example revision ----------------------------------------
+        # A tag or branch of the examples repo for fetch-code to clone.
+        DOCSRAG_REF: "main"
+
+        # --- mount points -----------------------------------------------------
+        # FastTrack's layout. Change these only if your cluster differs.
+        PIPELINE_OUTPUT_ROOT: /pipeline/outputs
+        PIPELINE_INPUT_ROOT: /pipeline/input1
+        PIPELINE_VFROOT: /pipeline/vfroot
+        # Where stage-service mirrors the model definitions, .env and
+        # credentials. A batch mount by name lands at /home/work/<name>.
+        PIPELINE_MODEL_STORAGE: /home/work/your_model_folder
+        # Where fetch-code puts the checkout every other node runs from.
+        DOCSRAG_SRC: /pipeline/vfroot/src/docs-rag
+    resources:
+      cpu: 2
+      mem: 8g
+    resource_opts:
+      shmem: 512m
+    service:
+      name: docs-rag-ui
+      # A dummy: the definition is read from the pipeline output mount, so this
+      # folder need only exist. Backend.AI always mounts one for a model service.
+      model: your_model_folder
+      model_mount_destination: /models
+      # Relative — FastTrack resolves this against model_mount_destination, so an
+      # absolute path here becomes /models/<path> and is never found.
+      # stage-service mirrors the definition into model storage each run, which
+      # is why this vfolder must be mounted on that task too.
+      model_definition_path: model-definition-gradio.yaml
+      runtime_variant: custom
+      replicas: 1
+      open_to_public: true
+      ephemeral: false
+      max_surge: 1
+      max_unavailable: 0

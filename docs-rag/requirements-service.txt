@@ -1,0 +1,14 @@
+# Serving dependencies — the two deployment nodes.
+# Everything in requirements.txt plus the web stack. Installed by
+# pipeline/serve.sh into a container-local venv (the /models mount is read-only
+# in a serving container, so the venv cannot live there).
+
+-r requirements.txt
+
+fastapi
+uvicorn
+sse-starlette
+python-multipart
+# gradio<6: 6.x changed the Chatbot signature and breaks the UI with
+# `Chatbot.__init__() got an unexpected keyword argument 'type'`.
+gradio<6

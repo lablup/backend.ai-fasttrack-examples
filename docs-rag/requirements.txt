@@ -1,0 +1,17 @@
+# Ingestion dependencies — nodes 01-06.
+# Installed by pipeline/bootstrap.sh into $PIPELINE_VFROOT/.venv (built once,
+# reused by every task). Deliberately lean: no torch, no web-serving stack.
+
+pyyaml
+pydantic
+pydantic-settings
+tiktoken
+numpy
+openai
+langchain
+langchain-core
+langchain-openai
+langchain-community
+langchain-text-splitters
+faiss-cpu
+rank-bm25
