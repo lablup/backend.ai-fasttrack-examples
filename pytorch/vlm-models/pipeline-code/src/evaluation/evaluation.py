@@ -202,8 +202,9 @@ def main():  # noqa: C901 (kept simple & linear intentionally)
     except Exception:
         pass
 
+    # The model was loaded with device_map='auto'; moving it again would break (or collapse)
+    # an Accelerate-dispatched placement, so only the inputs are routed to its input device.
     device = getattr(model, 'device', torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-    model.to(device)
 
     batch_size = max(1, args.batch_size)
     preds: List[str] = []
