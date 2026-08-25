@@ -35,8 +35,9 @@
 **1. 자동 환경 설정 (권장)**
 
 ```bash
-# vlm 프로젝트 루트에서 실행
-bash setup_env.sh
+# vlm 프로젝트 루트(pytorch/vlm-models/)에서 실행
+# 첫 번째 인자로 vFolder base path를 반드시 넘겨야 합니다.
+bash setup_env.sh /home/work/<your-vfolder>
 ```
 
 이미 가상환경이 존재한다면 건너뛰어도 됩니다.
@@ -55,7 +56,7 @@ pip install -r requirements.txt
 
 -   `HF_TOKEN`: Hugging Face 토큰
 -   `MODEL_ID`: 사용할 VLM 모델 repository 이름. 기본값은 `Qwen/Qwen2-VL-2B-Instruct`
--   `DATASET`: 사용할 VQA 데이터셋 repository 이름. 기본값은 `HuggingFaceM4/VQAv2`
+-   `DATASET`: 사용할 데이터셋 repository 이름. 기본값은 `philschmid/amazon-product-descriptions-vlm`
 -   `VLM_MODEL_CONFIG`: VLM 모델 설정 파일 (기본값: `vlm_model_config.yaml`)
 -   `VLM_COLLATOR_CONFIG`: VLM 데이터 콜레이터 설정 파일 (기본값: `vlm_collator_config.yaml`)
 -   `WANDB_API_KEY`: Weights & Biases API 키 (선택사항)
@@ -64,13 +65,13 @@ pip install -r requirements.txt
 
 #### 지원되는 VLM 모델
 
-현재 설정된 VLM 모델들:
+`configs/vlm_model_config.yaml`에 클래스 매핑이 포함된 모델들:
 
 -   **Qwen2-VL**: `Qwen/Qwen2-VL-2B-Instruct`, `Qwen/Qwen2-VL-7B-Instruct`
--   **LLaVA**: `llava-hf/llava-1.5-7b-hf`, `llava-hf/llava-1.5-13b-hf`
--   **InternVL**: `OpenGVLab/InternVL2-2B`
--   **PaliGemma**: `google/paligemma-3b-pt-448`
--   **Phi-3-Vision**: `microsoft/Phi-3-vision-128k-instruct`
+-   **SmolVLM**: `HuggingFaceTB/SmolVLM-Base`
+
+그 외의 VLM은 `default_fallback` 설정에 따라 `AutoModelForImageTextToText` + `AutoProcessor`로
+로드됩니다. 전용 클래스가 필요한 모델은 아래 방법으로 직접 매핑을 추가하세요.
 
 #### 모델별 클래스 설정
 
@@ -80,13 +81,17 @@ pip install -r requirements.txt
 model_classes:
     "Qwen/Qwen2-VL-2B-Instruct":
         model_class: "Qwen2VLForConditionalGeneration"
-        processor_class: "Qwen2VLProcessor"
+        # processor_class: "Qwen2VLProcessor" # 생략하면 AutoProcessor 사용
         import_path: "transformers"
 ```
 
+⚠️ `loading_params.trust_remote_code`와 `processor_params.trust_remote_code`는 기본값이
+`false`입니다. 모델 저장소의 임의 Python 코드를 실행하므로, 직접 검토한 모델에 한해서만
+`true`로 바꾸세요.
+
 #### 데이터 콜레이터 설정
 
-`configs/vlm_collator_config.yaml`에서 다양한 VQA 데이터셋에 맞게 설정할 수 있습니다:
+`configs/vlm_collator_config.yaml`에서 다양한 이미지-텍스트 데이터셋에 맞게 설정할 수 있습니다:
 `dataset_columns`의 key 값은 message_format 안에서 매핑될 변수의 이름이 됩니다(별칭으로 뒤 _columns는 제외해도 됩니다.)
 예를 들어, 'question_column'이 `dataset_columns`의 key 값이라면 해당 값이 message_format에서 'question' 혹은 'question_column'으로 변수가 매핑되어야 합니다.
 **주의!! role : "assistant"에게 매핑되는 데이터의 key 값은 반드시 answer_column으로 해야 합니다.**
@@ -94,11 +99,12 @@ model_classes:
 ```yaml
 dataset_columns:
     image_column: "image"
-    question_column: "question"
-    answer_column: "answer"
+    product_name_column: "Product Name"
+    category_column: "Category"
+    answer_column: "description"
 
 message_format:
-    system_prompt: "Answer briefly."
+    system_prompt: "You are an expert product description writer for Amazon."
     training_messages:
         - role: "system"
           content:
@@ -108,21 +114,21 @@ message_format:
           content:
               - type: "image"
               - type: "text"
-                text: "{question}"
+                text: "##PRODUCT NAME##: {product_name} \n##CATEGORY##: {category}"
         - role: "assistant"
           content:
               - type: "text"
                 text: "{answer}"
 ```
 
-위 설정 중에서 -type: "image"에 해당하는 설정의 순서는 message_format에서 바꿔도 파인튜닝 과정 중에서 `role: "systme"`과 `role: "user"` 사이로 순서가 고정됩니다.
+위 설정 중에서 -type: "image"에 해당하는 설정의 순서는 message_format에서 바꿔도 파인튜닝 과정 중에서 `role: "system"`과 `role: "user"` 사이로 순서가 고정됩니다.
 
 ### VLM 파이프라인 실행
 
 #### 방법 1: 전체 파이프라인 한 번에 실행
 
 ```bash
-cd pipeline-code
+# pytorch/vlm-models/ 에서 실행 (scripts/는 pipeline-code/의 형제 디렉터리입니다)
 python scripts/vlm_cli.py pipeline \
     --train_config_path train_config.yaml \
     --peft_config_path peft_config.yaml \
@@ -133,7 +139,8 @@ python scripts/vlm_cli.py pipeline \
 #### 방법 2: 개별 태스크 실행 (권장)
 
 ```bash
-# Task 1: VQA 데이터셋 다운로드
+# pytorch/vlm-models/ 에서 실행
+# Task 1: 데이터셋 다운로드
 python scripts/vlm_cli.py download-dataset
 
 # Task 2: 베이스 VLM 모델 평가
@@ -155,7 +162,7 @@ python scripts/vlm_cli.py eval-finetuned
 ### 기본 경로 설정
 
 -   **데이터셋 저장 경로**: `{프로젝트_루트}/dataset/`
--   **PEFT 어댑터 저장 경로**: `{프로젝트_루트}/results/model/`
+-   **PEFT 어댑터 저장 경로**: `{프로젝트_루트}/results/models/`
 -   **배포용 모델 저장 경로**: `{프로젝트_루트}/results/deployment_model/`
 -   **평가 결과 저장**: `{프로젝트_루트}/results/evaluation/`
 
@@ -188,36 +195,38 @@ vlm-models/
 
 ## 🔧 태스크 상세 설명
 
-### Task 1: VQA Dataset Download
+### Task 1: Dataset Download
 
 -   **파일**: `src/data/download_dataset.py`
--   **입력**: Hugging Face VQA 데이터셋 (예: `HuggingFaceM4/VQAv2`)
+-   **입력**: 이미지 컬럼을 가진 Hugging Face 데이터셋
+    (기본값 `philschmid/amazon-product-descriptions-vlm`: `image` / `Product Name` /
+    `Category` / `description`)
 -   **처리**: 데이터셋을 train/validation/test로 분할
 -   **출력**: `dataset/raw/` 폴더에 원본 데이터셋 저장 (이미지 포함)
 
 ### Task 2: 학습 전 Base VLM Model Evaluation
 
--   **입력**: 원본 VLM 모델, VQA 테스트 데이터
--   **처리**: VQA 정확도, BLEU, ROUGE 등의 지표로 베이스 모델 성능 평가
--   **출력**: `base_vlm_model_evaluation.json`
+-   **입력**: 원본 VLM 모델, 테스트 데이터
+-   **처리**: ROUGE, BLEU, BERTScore 지표로 베이스 모델 성능 평가
+-   **출력**: `results/evaluation/base_model_evaluation.json`
 
 ### Task 3: VLM Model Fine-tuning
 
 -   **파일**: `src/training/vlm_trainer.py`
--   **입력**: 베이스 VLM 모델, 원본 VQA 데이터 (이미지+텍스트), 설정 파일들
+-   **입력**: 베이스 VLM 모델, 원본 데이터 (이미지+텍스트), 설정 파일들
 -   **처리**:
     -   VLM 전용 데이터 콜레이터를 통해 이미지와 텍스트 동시 처리
     -   LoRA를 사용한 파라미터 효율적 파인튜닝
     -   모델별 최적화된 클래스 사용
 -   **출력**:
-    -   PEFT 어댑터: `results/model/` 폴더
+    -   PEFT 어댑터: `results/models/` 폴더
     -   배포용 완전한 모델: `results/deployment_model/` 폴더
 
 ### Task 4: Fine-tuned VLM Model Evaluation
 
--   **입력**: 파인튜닝된 VLM 모델, VQA 테스트 데이터
--   **처리**: VQA 정확도, BLEU, ROUGE 등의 지표로 파인튜닝된 모델 성능 평가
--   **출력**: `finetuned_vlm_model_evaluation.json`
+-   **입력**: 파인튜닝된 VLM 모델, 테스트 데이터
+-   **처리**: ROUGE, BLEU, BERTScore 지표로 파인튜닝된 모델 성능 평가
+-   **출력**: `results/evaluation/finetuned_model_evaluation.json`
 
 ## 🆕 VLM 특화 기능
 
@@ -229,7 +238,7 @@ vlm-models/
 ### 2. VLM 데이터 콜레이터
 
 -   이미지와 텍스트를 동시에 처리하는 커스텀 콜레이터
--   다양한 VQA 데이터셋 형식 지원
+-   다양한 이미지-텍스트 데이터셋 형식 지원
 -   설정 파일을 통한 유연한 커스터마이징
 
 ### 3. 메모리 최적화

@@ -22,18 +22,19 @@
 model_classes:
     "Qwen/Qwen2-VL-2B-Instruct":
         model_class: "Qwen2VLForConditionalGeneration"
-        processor_class: "Qwen2VLProcessor"
+        # processor_class: "Qwen2VLProcessor" # 생략하면 AutoProcessor 사용
         import_path: "transformers"
 ```
 
 ### 2️⃣ 데이터 처리 설정 (`vlm_collator_config.yaml`)
 
 ```yaml
-# 데이터셋 컬럼명 매핑
+# 데이터셋 컬럼명 매핑 (기본값: philschmid/amazon-product-descriptions-vlm)
 dataset_columns:
     image_column: "image" # 실제 데이터셋의 이미지 컬럼명
-    question_column: "question" # 실제 데이터셋의 질문 컬럼명
-    answer_column: "answer" # 실제 데이터셋의 답변 컬럼명
+    product_name_column: "Product Name" # message_format에서 {product_name}으로 사용
+    category_column: "Category" # message_format에서 {category}로 사용
+    answer_column: "description" # assistant 응답에 매핑되는 컬럼 (이름 고정)
 
 # 이미지/비디오 처리 활성화 설정
 data_processing:
@@ -49,40 +50,28 @@ data_processing:
 
 ### 지원되는 VLM 모델들
 
-현재 사전 설정된 모델들:
+`vlm_model_config.yaml`에 실제로 포함된 매핑은 다음이 전부입니다:
 
 ```yaml
 model_classes:
+    # SmolVLM 시리즈
+    "HuggingFaceTB/SmolVLM-Base":
+        model_class: "Idefics3ForConditionalGeneration"
+        import_path: "transformers"
+
     # Qwen2-VL 시리즈
     "Qwen/Qwen2-VL-2B-Instruct":
         model_class: "Qwen2VLForConditionalGeneration"
-        processor_class: "Qwen2VLProcessor"
         import_path: "transformers"
 
-    # LLaVA 시리즈
-    "llava-hf/llava-1.5-7b-hf":
-        model_class: "LlavaForConditionalGeneration"
-        processor_class: "LlavaProcessor"
-        import_path: "transformers"
-
-    # InternVL 시리즈
-    "OpenGVLab/InternVL2-2B":
-        model_class: "InternVLChatModel"
-        processor_class: "InternVLChatProcessor"
-        import_path: "transformers"
-
-    # PaliGemma 시리즈
-    "google/paligemma-3b-pt-448":
-        model_class: "PaliGemmaForConditionalGeneration"
-        processor_class: "PaliGemmaProcessor"
-        import_path: "transformers"
-
-    # Phi-3-Vision 시리즈
-    "microsoft/Phi-3-vision-128k-instruct":
-        model_class: "Phi3VForCausalLM"
-        processor_class: "Phi3VProcessor"
+    "Qwen/Qwen2-VL-7B-Instruct":
+        model_class: "Qwen2VLForConditionalGeneration"
         import_path: "transformers"
 ```
+
+목록에 없는 모델은 `default_fallback`의 `AutoModelForImageTextToText` + `AutoProcessor`로
+로드됩니다. 전용 클래스가 필요하다면 아래 방법으로 직접 추가하세요
+(예: LLaVA `LlavaForConditionalGeneration`, PaliGemma `PaliGemmaForConditionalGeneration`).
 
 ### 새로운 VLM 모델 추가하기
 
@@ -110,12 +99,15 @@ model_classes:
 loading_params:
     torch_dtype: "torch.bfloat16" # 데이터 타입: torch.float16, torch.bfloat16
     device_map: "auto" # 디바이스 매핑: auto, cuda, cpu
-    trust_remote_code: true # 원격 코드 신뢰 여부
+    trust_remote_code: false # 원격 코드 신뢰 여부 (기본값: false)
 
 # 프로세서 공통 설정
 processor_params:
-    trust_remote_code: true # 프로세서 원격 코드 신뢰 여부
+    trust_remote_code: false # 프로세서 원격 코드 신뢰 여부 (기본값: false)
 ```
+
+⚠️ `trust_remote_code: true`는 모델 저장소에 포함된 임의의 Python 코드를 로딩 시점에
+실행합니다. 직접 검토한 모델에 한해서만 켜세요.
 
 ---
 
@@ -215,6 +207,13 @@ image_processing:
     resize_mode: "keep_aspect" # 리사이즈 모드: keep_aspect, crop, stretch
     max_size: null # 최대 크기 제한 (픽셀, null=제한없음)
 ```
+
+`max_size`가 `null`이면 리사이즈를 하지 않습니다. 값을 지정하면 `resize_mode`에 따라
+동작이 달라집니다:
+
+-   `keep_aspect`: 비율을 유지한 채 긴 변을 `max_size`로 축소 (작은 이미지는 그대로 유지)
+-   `crop`: 짧은 변 기준으로 중앙을 정사각형으로 잘라낸 뒤 `max_size` x `max_size`로 축소
+-   `stretch`: 비율을 무시하고 `max_size` x `max_size`로 변형
 
 ### 비디오 처리 설정
 
@@ -336,6 +335,10 @@ dataset_columns:
     question_column: "query" # 실제 질문 컬럼명으로 변경
     answer_column: "response" # 실제 답변 컬럼명으로 변경
 ```
+
+**주의!!** `dataset_columns`를 바꿨다면 `message_format`의 템플릿 변수도 같이 바꿔야 합니다.
+기본값은 `{product_name}` / `{category}`를 사용하므로, 위 예시처럼 `question_column`을
+쓰려면 템플릿도 `{question}`으로 수정해야 합니다. 그렇지 않으면 빈 문자열로 렌더링됩니다.
 
 ### 시나리오 2: 비디오 VLM 모델 사용하기
 
