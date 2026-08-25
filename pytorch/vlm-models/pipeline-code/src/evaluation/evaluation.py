@@ -35,15 +35,22 @@ def parse_args():
     p.add_argument('--batch_size', type=int, default=int(os.getenv('EVAL_BATCH_SIZE', 8)), help='Generation batch size')
     p.add_argument('--max_new_tokens', type=int, default=512, help='Max new tokens to generate')
     p.add_argument('--use_adapter', action='store_true', help='Load fine-tuned adapter / merged model if available')
+    p.add_argument('--vlm_model_config', type=str, default=settings.vlm_model_config,
+                   help='Path to VLM model config YAML file (must match the one used for training)')
+    p.add_argument('--vlm_collator_config', type=str, default=settings.vlm_collator_config,
+                   help='Path to VLM collator config YAML file (must match the one used for training)')
     return p.parse_args()
 
 
-def load_model_for_evaluation(model_name_or_path: str, use_finetuned: bool = False):
+def load_model_for_evaluation(model_name_or_path: str, use_finetuned: bool = False,
+                              vlm_config_path: str = 'vlm_model_config.yaml'):
     """Load base or fine-tuned model.
 
     If a merged deployment model directory exists we load weights from that path while still
     using model_name_or_path (hub id) for config mapping inside ModelLoader.
-    Otherwise optionally apply PEFT adapter.
+    Otherwise apply the PEFT adapter. When a fine-tuned model is requested but neither a
+    merged model nor a loadable adapter exists we raise instead of silently returning the
+    base model, so the results can never be mislabelled as `use_adapter: true`.
     """
     merged_path = None
     if use_finetuned:
@@ -53,22 +60,22 @@ def load_model_for_evaluation(model_name_or_path: str, use_finetuned: bool = Fal
             print(f"Detected merged deployment model at: {merged_path}")
 
     # Instantiate ModelLoader with optional model_load_path (will still use hub id for class mapping)
-    ml = ModelLoader(model_name_or_path, model_load_path=merged_path)  # processor path defaults to model path
+    ml = ModelLoader(model_name_or_path, vlm_config_path=vlm_config_path, model_load_path=merged_path)
     if not ml.model or not ml.processor:
-        print("❌ Failed to load base/merged model. Aborting adapter attempt.")
-        return None, None
+        raise RuntimeError(f"Failed to load model or processor for '{model_name_or_path}'")
 
-    # If adapter requested but no merged model; try applying adapter on top of base
+    # If adapter requested but no merged model; apply the adapter on top of the base model
     if use_finetuned and merged_path is None:
         adapter_path = settings.save_model_path
-        if adapter_path and isinstance(adapter_path, Path) and adapter_path.exists():
-            try:
-                from peft import PeftModel
-                print(f"Applying PEFT adapter from {adapter_path}")
-                adapted = PeftModel.from_pretrained(ml.model, str(adapter_path))
-                return adapted, ml.processor
-            except Exception as e:
-                print(f"⚠️ Adapter load failed, using base model: {e}")
+        if not (adapter_path and isinstance(adapter_path, Path) and adapter_path.exists()):
+            raise RuntimeError(
+                f"--use_adapter was requested but no merged model and no adapter directory was found "
+                f"(looked for {settings.deployment_model_path} and {adapter_path})"
+            )
+        from peft import PeftModel
+        print(f"Applying PEFT adapter from {adapter_path}")
+        adapted = PeftModel.from_pretrained(ml.model, str(adapter_path))
+        return adapted, ml.processor
     return ml.model, ml.processor
 
 
@@ -163,12 +170,14 @@ def main():  # noqa: C901 (kept simple & linear intentionally)
         eval_ds = eval_ds.select(range(args.max_samples))
         print(f"Trimmed to {len(eval_ds)} samples")
 
-    model, processor = load_model_for_evaluation(args.model_name_or_path, use_finetuned=args.use_adapter)
-    if model is None:
-        raise RuntimeError('Model loading failed')
+    model, processor = load_model_for_evaluation(
+        args.model_name_or_path,
+        use_finetuned=args.use_adapter,
+        vlm_config_path=args.vlm_model_config,
+    )
     model.eval()
 
-    collator = create_vlm_collator(processor, config_path='vlm_collator_config.yaml')
+    collator = create_vlm_collator(processor, config_path=args.vlm_collator_config)
     ans_col = collator.dataset_columns.get('answer_column', 'answer')
     tokenizer = getattr(processor, 'tokenizer', processor)
 
