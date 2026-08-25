@@ -234,7 +234,11 @@ def main():  # noqa: C901 (kept simple & linear intentionally)
             
             # print(f"Generation input debug: {dbg}")
             out_ids = model.generate(**gen_in, generation_config=gen_cfg)
-            
+
+            # Decoder-only VLMs return prompt + completion; score only the completion.
+            if not getattr(model.config, 'is_encoder_decoder', False) and 'input_ids' in gen_in:
+                out_ids = out_ids[:, gen_in['input_ids'].shape[1]:]
+
             # print(f"Generated output IDs shape: {out_ids.shape}")
             decoded = tokenizer.batch_decode(out_ids, skip_special_tokens=True)
             
