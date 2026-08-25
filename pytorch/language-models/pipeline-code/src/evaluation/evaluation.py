@@ -66,21 +66,22 @@ def load_model_for_evaluation(model_name_or_path: str, use_finetuned: bool = Fal
     )
 
     if use_finetuned:
-        # Try applying adapter from results/models
-        try:
-            from peft import PeftModel  # optional
-            ap = settings.save_model_path
-            if ap and ap.exists():
-                adapter_candidates = [
-                    ap / 'adapter_model.safetensors',
-                    ap / 'adapter_config.json',
-                    ap / 'pytorch_lora_weights.bin',
-                ]
-                if any(p.exists() for p in adapter_candidates):
-                    print(f"Applying PEFT adapter from {ap}")
-                    return PeftModel.from_pretrained(base, str(ap))
-        except Exception as e:  # noqa: BLE001 - best-effort
-            print(f"⚠️ Adapter load failed; using base model: {e}")
+        # Apply the adapter from results/models. A requested fine-tuned evaluation must never
+        # silently degrade to the base model, or the results are mislabelled `use_adapter: true`.
+        from peft import PeftModel
+        ap = settings.save_model_path
+        adapter_candidates = [
+            ap / 'adapter_model.safetensors',
+            ap / 'adapter_config.json',
+            ap / 'pytorch_lora_weights.bin',
+        ] if ap else []
+        if not any(p.exists() for p in adapter_candidates):
+            raise RuntimeError(
+                f"--use_adapter was requested but no merged model and no adapter files were found "
+                f"(looked for {settings.deployment_model_path} and {ap})"
+            )
+        print(f"Applying PEFT adapter from {ap}")
+        return PeftModel.from_pretrained(base, str(ap))
     return base
 
 
@@ -151,10 +152,10 @@ def main():  # noqa: C901
     args = parse_args()
     print("=== LLM Evaluation (Simplified) ===")
 
-    # Resolve dataset path
+    # Resolve dataset path: evaluation never writes to the dataset, so the read-only
+    # pipeline input is loaded in place instead of being copied.
     if settings.is_pipeline_env:
-        readonly = settings.pipeline_input_path
-        dataset_path = settings.copy_readonly_to_writable(readonly, 'evaluation')
+        dataset_path = settings.pipeline_input_path
     else:
         dataset_path = settings.save_dataset_path_formatted
 
@@ -207,8 +208,9 @@ def main():  # noqa: C901
     except Exception:
         pass
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model.to(device)
+    # The model was loaded with device_map='auto'; moving it again would break (or collapse)
+    # an Accelerate-dispatched placement, so only the inputs are routed to its input device.
+    device = getattr(model, 'device', torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
 
     # Column mapping
     cols = list(eval_ds.column_names)

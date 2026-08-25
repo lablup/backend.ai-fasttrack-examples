@@ -3,7 +3,7 @@
 # --- 1. CLI의 첫 번째 인자를 VFOLDER_NAME 변수에 할당 ---
 if [ -z "$1" ]; then
     echo "❌ Error: Please provide the base path for your vfolder as the first argument."
-    echo "Usage: ./setup_venv.sh /path/to/your/vfolder"
+    echo "Usage: ./setup_env.sh /path/to/your/vfolder"
     exit 1
 fi
 
@@ -25,7 +25,10 @@ fi
 
 # 3. 공통 작업: 항상 패키지를 설치하거나 확인합니다.
 echo "Installing or verifying packages from $REQUIREMENTS_PATH..."
-"$VENV_PATH/bin/pip" install -r "$REQUIREMENTS_PATH"
+if ! "$VENV_PATH/bin/pip" install -r "$REQUIREMENTS_PATH"; then
+    echo "❌ Error: Failed to install packages from $REQUIREMENTS_PATH"
+    exit 1
+fi
 
 # -----------------------------
 
