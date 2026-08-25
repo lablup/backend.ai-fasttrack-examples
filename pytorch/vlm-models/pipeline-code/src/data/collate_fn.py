@@ -494,11 +494,13 @@ class VLMDataCollator:
                 # fallback: 간단한 텍스트 결합
                 question = example.get(self.dataset_columns.get('question_column', 'question'), '')
                 answer = example.get(self.dataset_columns.get('answer_column', 'answer'), '')
+                # 평가 시에는 정답을 프롬프트에 넣지 않는다 (모델이 정답을 복사해 지표가 부풀려짐)
+                tail = f"Answer: {answer}" if is_training else "Answer:"
                 if visuals_images:
                     tag = "<video>" if len(visuals_images) > 1 else "<image>"
-                    texts.append(f"{tag}\nQuestion: {question}\nAnswer: {answer}")
+                    texts.append(f"{tag}\nQuestion: {question}\n{tail}")
                 else:
-                    texts.append(f"Question: {question}\nAnswer: {answer}")
+                    texts.append(f"Question: {question}\n{tail}")
 
             # 4) 시각 데이터 저장 (샘플 단위의 리스트)
             visual_data.append(visuals_images)
