@@ -135,10 +135,10 @@ def main():  # noqa: C901 (kept simple & linear intentionally)
     args = parse_args()
     print("=== VLM Evaluation (Simplified) ===")
 
-    # Dataset path resolution (unchanged semantics)
+    # Dataset path resolution: evaluation never writes to the dataset, so the read-only
+    # pipeline input is loaded in place instead of being copied (image datasets are large).
     if settings.is_pipeline_env:
-        readonly = settings.pipeline_input_path
-        dataset_path = settings.copy_readonly_to_writable(readonly, 'evaluation')
+        dataset_path = settings.pipeline_input_path
     else:
         dataset_path = settings.save_dataset_path_raw
 
