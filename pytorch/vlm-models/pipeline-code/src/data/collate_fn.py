@@ -166,7 +166,50 @@ class VLMDataCollator:
             except Exception as e:
                 print(f"⚠️ Error converting to RGB: {e}")
                 return None
-        
+
+        # 4. 리사이즈 (max_size가 설정된 경우에만 적용)
+        image = self._resize_image(image)
+
+        return image
+
+    def _resize_image(self, image: Image.Image) -> Image.Image:
+        """image_processing.max_size / resize_mode 설정에 따라 이미지를 리사이즈합니다.
+
+        max_size가 null(기본값)이면 원본 크기를 그대로 유지합니다.
+        - keep_aspect: 가로세로 비율을 유지한 채 긴 변을 max_size로 축소
+        - stretch: 비율을 무시하고 max_size x max_size로 변형
+        - crop: 짧은 변 기준으로 중앙을 정사각형으로 잘라낸 뒤 max_size x max_size로 축소
+        """
+        max_size = self.image_processing.get('max_size')
+        if not max_size:
+            return image
+
+        try:
+            max_size = int(max_size)
+        except (TypeError, ValueError):
+            print(f"⚠️ Invalid image_processing.max_size: {max_size!r}. Skipping resize.")
+            return image
+
+        mode = self.image_processing.get('resize_mode', 'keep_aspect')
+        try:
+            if mode == 'keep_aspect':
+                if max(image.size) > max_size:
+                    image = image.copy()
+                    image.thumbnail((max_size, max_size), Image.LANCZOS)
+            elif mode == 'stretch':
+                image = image.resize((max_size, max_size), Image.LANCZOS)
+            elif mode == 'crop':
+                width, height = image.size
+                side = min(width, height)
+                left = (width - side) // 2
+                top = (height - side) // 2
+                image = image.crop((left, top, left + side, top + side))
+                image = image.resize((max_size, max_size), Image.LANCZOS)
+            else:
+                print(f"⚠️ Unknown image_processing.resize_mode: {mode!r}. Skipping resize.")
+        except Exception as e:
+            print(f"⚠️ Error resizing image ({mode}, max_size={max_size}): {e}")
+
         return image
     
     def _process_video(self, video) -> Optional[List[Tuple[Image.Image, Optional[float]]]]:
