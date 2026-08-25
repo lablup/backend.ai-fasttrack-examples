@@ -32,12 +32,14 @@ default_fallback:
     # processor_class 미지정 -> AutoProcessor 사용
 
 # 공통 로딩 파라미터
+# ⚠️ trust_remote_code는 모델 저장소의 임의 Python 코드를 실행합니다.
+#    직접 검토한 모델에 한해서만 true로 바꾸세요.
 loading_params:
     torch_dtype: "torch.bfloat16"
     device_map: "auto"
-    trust_remote_code: true
+    trust_remote_code: false
 
 # 프로세서 공통 설정
 processor_params:
-    trust_remote_code: true
+    trust_remote_code: false # 위와 동일한 주의사항이 적용됩니다
     use_fast: true # fast processor 지원 모델용 (Qwen2-VL, SmolVLM, GLM-4V, LLaVA 등)
