@@ -78,12 +78,10 @@ class VLMTrainer:
     def train(self, train_config_dict=None, peft_config_dict=None, logging_dir=None):
         """VLM 모델 파인튜닝 실행"""
         if not self.model or not self.processor or not self.data_collator:
-            print("❌ Model, processor, or data collator is not loaded. Cannot proceed with training.")
-            return
-        
+            raise RuntimeError("Model, processor, or data collator is not loaded. Cannot proceed with training.")
+
         if not self.dataset:
-            print("❌ Dataset is not loaded. Cannot proceed with training.")
-            return
+            raise RuntimeError("Dataset is not loaded. Cannot proceed with training.")
         
         # 학습 설정 (self. 직접 사용으로 일관성 유지)
         if train_config_dict:
@@ -161,6 +159,7 @@ class VLMTrainer:
         deployment_model_path.mkdir(parents=True, exist_ok=True)
         
         print(f"🔄 Merging LoRA weights and saving deployment-ready VLM model to {deployment_model_path}")
+        merged_saved = False
         try:
             # PEFT 모델에서 병합된 모델 생성
             merged_model = trainer.model.merge_and_unload()
@@ -181,6 +180,7 @@ class VLMTrainer:
                 self.tokenizer.save_pretrained(deployment_model_path)
                 print(f"✅ VLM tokenizer saved to {deployment_model_path}")
             
+            merged_saved = True
             print(f"✅ Successfully saved deployment-ready VLM model to {deployment_model_path}")
             print(f"✅ VLM model is ready for deployment or distribution")
             
@@ -197,7 +197,10 @@ class VLMTrainer:
         
         print(f"✅ VLM fine-tuning completed successfully!")
         print(f"📂 PEFT adapter saved to: {self.output_dir}")
-        print(f"📂 Deployment-ready model saved to: {deployment_model_path}")
+        if merged_saved:
+            print(f"📂 Deployment-ready model saved to: {deployment_model_path}")
+        else:
+            print("⚠️ Deployment-ready model was NOT saved; only the PEFT adapter is available.")
 
 def main():
     args = parse_args()
@@ -238,8 +241,7 @@ def main():
         train_config_dict['report_to'] = report_to
     
     if not model_loader.model or not model_loader.processor:
-        print("❌ Failed to load VLM model or processor. Cannot proceed with training.")
-        return
+        raise RuntimeError(f"Failed to load VLM model or processor for '{args.model_id}'. Cannot proceed with training.")
 
     print("Output directory is not specified. Using default settings.")
     output_dir = settings.save_model_path

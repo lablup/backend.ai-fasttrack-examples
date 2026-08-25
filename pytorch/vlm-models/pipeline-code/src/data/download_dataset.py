@@ -154,8 +154,7 @@ def main():
     dataset_name = args.dataset_name
 
     if not dataset_name:
-        print("Dataset name is not provided. Please set the DATASET environment variable.")
-        return
+        raise ValueError("Dataset name is not provided. Please set the DATASET environment variable.")
 
     print("=== Task 1a: Dataset Download & Split ===")
     

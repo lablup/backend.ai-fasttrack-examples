@@ -35,9 +35,9 @@ class Settings(BaseSettings):
     pipeline_output_path: Optional[Path] = None
     pipeline_vfroot_path: Optional[Path] = None
     
-    # # VLM 특화 설정
-    # vlm_model_config: str = os.getenv('VLM_MODEL_CONFIG', 'vlm_model_config.yaml')
-    # vlm_collator_config: str = os.getenv('VLM_COLLATOR_CONFIG', 'vlm_collator_config.yaml')
+    # VLM 특화 설정 (CLI 인자를 주지 않았을 때의 기본값)
+    vlm_model_config: str = os.getenv('VLM_MODEL_CONFIG', 'vlm_model_config.yaml')
+    vlm_collator_config: str = os.getenv('VLM_COLLATOR_CONFIG', 'vlm_collator_config.yaml')
     
     # .env 파일이나 환경 변수에 있는 키들을 필드로 명시적으로 추가합니다.
     hf_token: Optional[str] = os.getenv('HF_TOKEN', None)
