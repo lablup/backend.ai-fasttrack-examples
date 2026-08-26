@@ -118,12 +118,15 @@ def compute_metrics(preds: List[str], refs: List[str]) -> Dict[str, Any]:
         try:
             bs = _run(preferred)
             used_model = preferred
-        except Exception:
-            # Fallback to a stable, supported model
+        except Exception as pref_err:
+            # Fallback to a stable, supported model. Say so out loud: a silent swap
+            # means the reported metric is not the one that was configured.
+            print(f"⚠️ BERTScore model '{preferred}' unusable ({type(pref_err).__name__}: {pref_err}).")
             for alt in ('roberta-large', 'microsoft/deberta-large-mnli'):
                 try:
                     bs = _run(alt)
                     used_model = alt
+                    print(f"🔄 BERTScore falling back to '{alt}'. Set BERTSCORE_MODEL to choose another.")
                     break
                 except Exception:
                     continue
@@ -294,6 +297,52 @@ def main():  # noqa: C901 (kept simple & linear intentionally)
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     print(f'Saved evaluation results to {out_path}')
+
+    if args.use_adapter:
+        report_delta_against_base(metrics, preds, refs, out_path.parent)
+
+
+def report_delta_against_base(metrics: Dict[str, Any], preds: List[str], refs: List[str],
+                              output_dir: Path) -> None:
+    """Print fine-tuned vs base metrics side by side, and say if anything regressed.
+
+    Fine-tuning is not automatically an improvement. Without this comparison a
+    regression is invisible: training loss keeps falling, the pipeline reports success,
+    and only a hand-diff of two JSON files reveals the model got worse.
+    """
+    base_path = output_dir / 'base_model_evaluation.json'
+    if not base_path.exists():
+        print(f'ℹ️ No base evaluation at {base_path}; skipping comparison.')
+        return
+    try:
+        base = json.loads(base_path.read_text(encoding='utf-8')).get('metrics', {})
+    except Exception as e:
+        print(f'⚠️ Could not read base evaluation for comparison: {e}')
+        return
+
+    print('\n=== Fine-tuned vs base ===')
+    print(f"{'metric':<16}{'base':>10}{'finetuned':>12}{'delta':>10}")
+    regressed = []
+    for key in ('rouge1', 'rougeL', 'bleu', 'bertscore_f1'):
+        b, f = base.get(key), metrics.get(key)
+        if not isinstance(b, (int, float)) or not isinstance(f, (int, float)):
+            continue
+        delta = f - b
+        print(f'{key:<16}{b:>10.4f}{f:>12.4f}{delta:>+10.4f}')
+        if delta < 0:
+            regressed.append(key)
+
+    avg_pred = sum(len(p) for p in preds) / len(preds) if preds else 0
+    avg_ref = sum(len(r) for r in refs) / len(refs) if refs else 0
+    print(f'mean length     {avg_ref:>10.0f}{avg_pred:>12.0f}   chars (reference vs prediction)')
+    if avg_ref and avg_pred > 2 * avg_ref:
+        print('⚠️ Predictions are more than twice the reference length. A model that will not '
+              'stop usually means EOS is being masked out of the training loss.')
+
+    if regressed:
+        print(f'⚠️ Fine-tuning REGRESSED these metrics vs the base model: {", ".join(regressed)}')
+    else:
+        print('✅ Fine-tuning improved every compared metric.')
 
 
 if __name__ == '__main__':
