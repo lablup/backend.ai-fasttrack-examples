@@ -40,16 +40,22 @@
 bash setup_env.sh /home/work/<your-vfolder>
 ```
 
+가상환경은 Backend.AI 파이프라인 job 안에서는 `/pipeline/vfroot/.venv`에,
+그 외의 환경에서는 첫 번째 인자로 넘긴 경로 아래(`<vfolder>/.venv`)에 생성됩니다.
 이미 가상환경이 존재한다면 건너뛰어도 됩니다.
 
 **2. 수동 환경 설정**
 
 ```bash
 cd pipeline-code
-python -m venv .vlm
+python3 -m venv .vlm
 source .vlm/bin/activate  # Windows: .vlm\Scripts\activate
 pip install -r requirements.txt
 ```
+
+⚠️ V100 등 Ampere 이전 GPU에는 native bfloat16이 없습니다. 설정 파일의
+`bf16: true`는 그대로 두어도 됩니다 — 파이프라인이 compute capability를 확인해
+자동으로 fp16으로 전환하고 그 이유를 로그에 남깁니다.
 
 **3. 환경 변수 설정**
 `pipeline-code/.env` 파일에서 다음 값들을 확인하세요:
@@ -161,10 +167,16 @@ python scripts/vlm_cli.py eval-finetuned
 
 ### 기본 경로 설정
 
--   **데이터셋 저장 경로**: `{프로젝트_루트}/dataset/`
--   **PEFT 어댑터 저장 경로**: `{프로젝트_루트}/results/models/`
--   **배포용 모델 저장 경로**: `{프로젝트_루트}/results/deployment_model/`
--   **평가 결과 저장**: `{프로젝트_루트}/results/evaluation/`
+모든 출력 경로는 `settings.py`의 `base_path`, 즉 **`pipeline-code/`** 하위에 생성됩니다
+(`vlm-models/` 가 아닙니다).
+
+-   **데이터셋 저장 경로**: `pipeline-code/dataset/`
+-   **PEFT 어댑터 저장 경로**: `pipeline-code/results/models/`
+-   **배포용 모델 저장 경로**: `pipeline-code/results/deployment_model/`
+-   **평가 결과 저장**: `pipeline-code/results/evaluation/`
+
+각 경로는 `.env`의 `SAVE_DATASET_PATH`, `SAVE_MODEL_PATH`, `DEPLOYMENT_MODEL_PATH`,
+`EVALUATION_OUTPUT_PATH`로 변경할 수 있습니다.
 
 ### 파일 구조
 
