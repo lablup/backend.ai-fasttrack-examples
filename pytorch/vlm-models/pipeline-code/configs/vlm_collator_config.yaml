@@ -84,7 +84,9 @@ text_processing:
 label_masking:
     mask_pad_token: true # 패딩 토큰 마스킹
     mask_image_token: true # 이미지 토큰 마스킹
-    mask_input_tokens: false # 입력 토큰 마스킹 (instruction tuning시 false)
+    mask_input_tokens: true # 프롬프트(system/user) 토큰을 loss에서 제외. instruction
+    # tuning에서는 true가 맞습니다. false로 두면 모델이 프롬프트 자체를 재생성하도록
+    # 학습되어 응답 품질이 떨어집니다.
     ignore_index: -100 # 마스킹된 토큰의 라벨 값
 
 # 배치 처리 설정

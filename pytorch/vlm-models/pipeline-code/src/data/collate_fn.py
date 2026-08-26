@@ -592,65 +592,67 @@ class VLMDataCollator:
                     # If nearly all tokens are considered special, it's likely wrong; skip to be safe
                     labels[mask_special] = ignore_index
 
-            # 응답 시작 위치 기반 마스킹: 문자열 기준으로 answer 텍스트 시작 지점을 찾아 토큰 오프셋과 정렬
+            # 프롬프트 마스킹: assistant 응답 토큰만 loss에 남기고 system/user는 -100
             if self.label_masking.get('mask_input_tokens', True):
                 try:
-                    tokenizer = getattr(self.processor, 'tokenizer', self.processor)
-                    answer_col = self.dataset_columns.get('answer_column', 'answer')
-                    answers: List[str] = []
-                    answer_starts: List[int] = []
-                    for ex, txt in zip(examples, texts):
-                        ans = ex.get(answer_col, '')
-                        ans = '' if ans is None else str(ans)
-                        answers.append(ans)
-                        # 답변 문자열이 템플릿 내 어디서 시작하는지 찾음 (없으면 -1)
-                        try:
-                            start_idx = txt.rfind(ans) if ans else -1
-                        except Exception:
-                            start_idx = -1
-                        answer_starts.append(start_idx)
-
-                    # offsets를 얻기 위해 동일한 텍스트에 대해 토크나이저를 한 번 더 호출
-                    tok_out = tokenizer(
-                        texts,
-                        return_offsets_mapping=True,
-                        padding=self.text_processing.get('padding', True),
-                        truncation=self.text_processing.get('truncation', True),
-                        max_length=self.text_processing.get('max_length', 2048),
-                        add_special_tokens=True
-                    )
-                    offsets = tok_out.get('offset_mapping')
-
-                    if offsets is not None:
-                        # 배치 차원 정렬 확인 (패딩으로 길이 통일되었음)
-                        for i in range(labels.size(0)):
-                            ans_start = answer_starts[i]
-                            if ans_start is None or ans_start < 0:
-                                # 답변 위치를 찾지 못한 경우: 프롬프트 마스킹을 적용하지 않고 특수 토큰만 무시
-                                continue
-                            seq_offsets = offsets[i]
-                            # offsets 길이가 labels 길이와 동일해야 함
-                            L = min(len(seq_offsets), labels.size(1))
-                            for j in range(L):
-                                # (start, end) = (0, 0)인 토큰은 보통 special
-                                st, ed = seq_offsets[j]
-                                # 답변 시작 이전(end <= ans_start)인 토큰은 프롬프트로 간주하고 마스킹
-                                if ed <= ans_start:
-                                    labels[i, j] = ignore_index
-                    else:
-                        print("⚠️ Token offsets not available; skipping prompt masking (only special tokens masked)")
+                    self._mask_prompt_tokens(labels, batch, examples, visual_data, ignore_index)
                 except Exception as e:
                     print(f"⚠️ Prompt masking failed: {e}; falling back to special-token-only masking")
-
-            # # 선택적 추가 마스킹 옵션(유지)
-            # if self.label_masking.get('mask_input_tokens', False):
-            #     # 이미 위에서 프롬프트 마스킹을 수행하므로 별도 동작 불필요
-            #     pass
 
             batch["labels"] = labels
 
         return batch
     
+    def _mask_prompt_tokens(self, labels, batch, examples: List[Dict[str, Any]],
+                            visual_data: List[List[Image.Image]], ignore_index: int) -> None:
+        """assistant 응답 토큰만 남기고 프롬프트 전체를 ignore_index로 마스킹합니다.
+
+        프롬프트 길이는 학습 배치와 **같은 processor 호출**로 측정합니다. 텍스트를
+        tokenizer로 다시 토크나이즈해 offset을 비교하면 안 됩니다. 렌더된 텍스트에서
+        <|image_pad|>는 토큰 1개지만 processor는 이를 수백 개로 확장하므로 두 인덱스
+        공간이 서로 대응하지 않습니다.
+
+        프롬프트는 training_messages에서 마지막 assistant 턴만 제거해 만듭니다.
+        evaluation_messages를 쓰면 사용자가 두 템플릿을 다르게 정의했을 때 접두사가
+        학습 텍스트와 어긋납니다.
+        """
+        tokenizer = getattr(self.processor, 'tokenizer', self.processor)
+
+        prompt_texts: List[str] = []
+        for example, visuals in zip(examples, visual_data):
+            messages = self._format_messages(example, is_training=True)
+            # 마지막 assistant 턴을 제거해 프롬프트만 남긴다
+            while messages and messages[-1].get('role') == 'assistant':
+                messages.pop()
+            messages = self._build_messages_with_visuals(messages, len(visuals), None)
+            prompt_texts.append(self.processor.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False
+            ).strip())
+
+        prompt_batch = self._process_with_processor(prompt_texts, visual_data)
+
+        prompt_attn = prompt_batch.get('attention_mask')
+        batch_attn = batch.get('attention_mask')
+        if prompt_attn is None or batch_attn is None:
+            print("⚠️ attention_mask unavailable; skipping prompt masking (only special tokens masked)")
+            return
+
+        total = labels.size(1)
+        left_padded = getattr(tokenizer, 'padding_side', 'right') == 'left'
+
+        for i in range(labels.size(0)):
+            prompt_len = int(prompt_attn[i].sum())
+            seq_len = int(batch_attn[i].sum())
+            # 잘림 등으로 응답이 남지 않으면 해당 샘플은 건드리지 않는다
+            # (전부 -100으로 만들면 loss가 NaN이 된다)
+            if prompt_len >= seq_len:
+                print(f"⚠️ Sample {i}: prompt ({prompt_len}) >= sequence ({seq_len}); "
+                      f"leaving special-token-only masking for this sample")
+                continue
+            start = total - seq_len if left_padded else 0
+            labels[i, :start + prompt_len] = ignore_index   # 좌측 padding + 프롬프트
+            labels[i, start + seq_len:] = ignore_index      # 우측 padding
+
     def _process_with_processor(self, texts: List[str], visual_data: List[List[Image.Image]]) -> Dict[str, torch.Tensor]:
         """프로세서를 사용하여 텍스트와 시각 데이터를 처리합니다.
         - 각 샘플별로 다중 이미지/프레임을 지원합니다.
