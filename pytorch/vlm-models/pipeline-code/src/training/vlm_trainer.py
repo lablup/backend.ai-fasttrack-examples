@@ -131,7 +131,7 @@ class VLMTrainer:
             args=train_config,
             train_dataset=self.dataset['train'],
             eval_dataset=self.dataset.get('validation'),
-            processing_class=self.processor.tokenizer,  # VLM processor 전체를 사용
+            processing_class=self.processor,  # VLM processor 전체를 사용
             peft_config=peft_config,
             data_collator=self.data_collator,  # VLM 전용 데이터 콜레이터 사용
             # VLM 사용자 정의 data_collator를 위한 추가 설정
