@@ -1,0 +1,32 @@
+# torch: the upper bound keeps pip on a CUDA 12.x build. Newer wheels ship
+# nvidia-*-cu13, which needs an NVIDIA driver >= 580 and silently falls back to
+# CPU on older drivers. For a specific CUDA variant, install torch first, e.g.
+#   pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cu128
+torch>=2.5.0,<2.10.0
+# transformers: AutoModelForVision2Seq and other v4 APIs were removed in v5.
+transformers>=4.46.0,<5
+datasets
+accelerate
+evaluate
+bitsandbytes
+trl
+peft
+protobuf
+sentencepiece
+argparse
+pathlib
+python-dotenv
+pydantic-settings
+wandb
+pillow
+torchvision
+bert_score
+nltk
+absl-py
+rouge_score
+timm
+pyyaml
+# VLM 특화 패키지
+qwen-vl-utils  # Qwen2-VL 전용 유틸리티
+opencv-python  # 이미지/비디오 처리
+decord  # 비디오 디코딩

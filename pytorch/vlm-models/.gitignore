@@ -4,8 +4,8 @@ pipeline-code/dataset/*
 pipeline-code/results/*
 pipeline-code/logs/*
 pipeline-code/wandb/*
-pipeline-code/model/*
 wandb/*
 __pycache__/*
 *.pyc
 .ipynb_checkpoints
+pipeline-code/model/*

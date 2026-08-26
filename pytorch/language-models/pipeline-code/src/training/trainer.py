@@ -3,20 +3,18 @@ import json
 import argparse
 import torch
 import sys
+import yaml
+import wandb
+
 from pathlib import Path
 from trl import SFTTrainer, SFTConfig
 from transformers import DataCollatorForLanguageModeling, TrainingArguments
 from datasets import DatasetDict, load_from_disk
 from peft import LoraConfig
 
-# # 프로젝트 루트를 sys.path에 추가
-# project_root = Path(__file__).parent.parent.parent
-# sys.path.insert(0, str(project_root))
 
 from src.models.model import ModelLoader
 from configs.settings import settings
-import yaml
-import wandb
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Trainer Configuration")
@@ -79,7 +77,6 @@ class CustomTrainer:
                 num_train_epochs=1.0,
                 logging_steps=0.2,
                 logging_strategy="steps",
-                # save_steps=1,
                 load_best_model_at_end = True,
                 metric_for_best_model = "eval_loss",  # 또는 사용하는 평가 메트릭
                 greater_is_better = False,  # loss의 경우 false, accuracy 등은 true
@@ -111,7 +108,6 @@ class CustomTrainer:
             eval_dataset=self.dataset['validation'],
             processing_class=tokenizer,
             peft_config=peft_config,
-            # data_collator=self.data_collator,
         )
         print("Starting training...")
         train_result = trainer.train()
@@ -157,6 +153,28 @@ class CustomTrainer:
         torch.cuda.empty_cache()
         
         print(f"Model training completed. Adapter saved to {self.output_dir}, Deployment-ready model saved to {deployment_model_path}")
+def apply_precision_for_gpu(train_config_dict: dict) -> None:
+    """Pre-Ampere GPUs have no native bfloat16, so swap a bf16 request for fp16.
+
+    Hugging Face will not catch this. is_torch_bf16_gpu_available() defers to
+    torch.cuda.is_bf16_supported(), which counts emulation and returns True on Volta,
+    so TrainingArguments accepts bf16=True and the run is simply several times slower
+    with nothing logged.
+    """
+    if not train_config_dict.get('bf16'):
+        return
+    if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8:
+        return
+    cap = torch.cuda.get_device_capability() if torch.cuda.is_available() else None
+    print(f"⚠️ train config requests bf16, but this GPU (compute capability {cap}) has no "
+          f"native bfloat16 support.")
+    print("   Emulated bf16 is several times slower than fp16 for identical results, "
+          "so fp16 is being used instead.")
+    print("   Set bf16: false and fp16: true in the training config to silence this.")
+    train_config_dict['bf16'] = False
+    train_config_dict['fp16'] = True
+
+
 def main():
     args = parse_args()
     model_loader = ModelLoader(args.model_id)
@@ -196,6 +214,7 @@ def main():
     
     # CLI 조건에 따라 report_to 값을 덮어쓰기
     train_config_dict['report_to'] = report_to
+    apply_precision_for_gpu(train_config_dict)
     
     if not model_loader.model or not model_loader.tokenizer:
         print("Failed to load model or tokenizer. Cannot proceed with training.")
