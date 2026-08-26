@@ -106,6 +106,14 @@ class VLMDataCollator:
         except Exception:
             pass
 
+        # EOS must stay in the loss. It is a special token, but it is also the only
+        # signal that teaches the model to end its turn -- mask it and generation runs
+        # to max_new_tokens forever. Padding and the visual placeholders stay masked.
+        eos_id = getattr(tokenizer, 'eos_token_id', None)
+        if eos_id is not None and eos_id in self.ignore_in_loss_ids:
+            self.ignore_in_loss_ids.discard(eos_id)
+            print(f"↩️ Keeping eos_token_id={eos_id} in the loss so the model learns to stop.")
+
         print(f"✅ Special tokens collected: ignore_in_loss_ids={len(self.ignore_in_loss_ids)}")
 
     
