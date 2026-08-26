@@ -18,7 +18,7 @@ from transformers import TrainingArguments
 from datasets import DatasetDict, load_from_disk
 from peft import LoraConfig
 
-from src.models.model import ModelLoader
+from src.models.model import ModelLoader, gpu_supports_bf16
 from src.data.collate_fn import create_vlm_collator
 from configs.settings import settings
 
@@ -202,6 +202,27 @@ class VLMTrainer:
         else:
             print("⚠️ Deployment-ready model was NOT saved; only the PEFT adapter is available.")
 
+def apply_precision_for_gpu(train_config_dict: dict) -> None:
+    """Pre-Ampere GPUs have no native bfloat16, so swap a bf16 request for fp16.
+
+    Hugging Face will not catch this. is_torch_bf16_gpu_available() defers to
+    torch.cuda.is_bf16_supported(), which counts emulation and returns True on Volta,
+    so TrainingArguments accepts bf16=True and the run is simply several times slower
+    with nothing logged. Measured on a V100: 22.97 s/step in bf16 versus 6.83 s/step
+    in fp16, for the same config and equivalent loss.
+    """
+    if not train_config_dict.get('bf16') or gpu_supports_bf16():
+        return
+    cap = torch.cuda.get_device_capability() if torch.cuda.is_available() else None
+    print(f"⚠️ train config requests bf16, but this GPU (compute capability {cap}) has no "
+          f"native bfloat16 support.")
+    print("   Emulated bf16 is several times slower than fp16 for identical results, "
+          "so fp16 is being used instead.")
+    print("   Set bf16: false and fp16: true in the training config to silence this.")
+    train_config_dict['bf16'] = False
+    train_config_dict['fp16'] = True
+
+
 def main():
     args = parse_args()
     
@@ -239,6 +260,7 @@ def main():
     # CLI 조건에 따라 report_to 값을 덮어쓰기
     if train_config_dict:
         train_config_dict['report_to'] = report_to
+        apply_precision_for_gpu(train_config_dict)
     
     if not model_loader.model or not model_loader.processor:
         raise RuntimeError(f"Failed to load VLM model or processor for '{args.model_id}'. Cannot proceed with training.")

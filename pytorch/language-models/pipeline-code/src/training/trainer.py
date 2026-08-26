@@ -153,6 +153,28 @@ class CustomTrainer:
         torch.cuda.empty_cache()
         
         print(f"Model training completed. Adapter saved to {self.output_dir}, Deployment-ready model saved to {deployment_model_path}")
+def apply_precision_for_gpu(train_config_dict: dict) -> None:
+    """Pre-Ampere GPUs have no native bfloat16, so swap a bf16 request for fp16.
+
+    Hugging Face will not catch this. is_torch_bf16_gpu_available() defers to
+    torch.cuda.is_bf16_supported(), which counts emulation and returns True on Volta,
+    so TrainingArguments accepts bf16=True and the run is simply several times slower
+    with nothing logged.
+    """
+    if not train_config_dict.get('bf16'):
+        return
+    if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8:
+        return
+    cap = torch.cuda.get_device_capability() if torch.cuda.is_available() else None
+    print(f"⚠️ train config requests bf16, but this GPU (compute capability {cap}) has no "
+          f"native bfloat16 support.")
+    print("   Emulated bf16 is several times slower than fp16 for identical results, "
+          "so fp16 is being used instead.")
+    print("   Set bf16: false and fp16: true in the training config to silence this.")
+    train_config_dict['bf16'] = False
+    train_config_dict['fp16'] = True
+
+
 def main():
     args = parse_args()
     model_loader = ModelLoader(args.model_id)
@@ -192,6 +214,7 @@ def main():
     
     # CLI 조건에 따라 report_to 값을 덮어쓰기
     train_config_dict['report_to'] = report_to
+    apply_precision_for_gpu(train_config_dict)
     
     if not model_loader.model or not model_loader.tokenizer:
         print("Failed to load model or tokenizer. Cannot proceed with training.")

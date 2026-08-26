@@ -6,6 +6,19 @@ import yaml
 import importlib
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer, AutoModelForImageTextToText
 
+def gpu_supports_bf16() -> bool:
+    """True only when the GPU has native bfloat16, i.e. Ampere (SM 8.0) or newer.
+
+    torch.cuda.is_bf16_supported() cannot be used for this: it also returns True on
+    Volta and Turing by counting emulation, which is roughly an order of magnitude
+    slower than fp16. Because it returns True, Hugging Face's own bf16 guard passes
+    and the user gets no warning at all -- just a much slower run.
+    """
+    if not torch.cuda.is_available():
+        return False
+    return torch.cuda.get_device_capability()[0] >= 8
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="VLM Model Loader")
     parser.add_argument('--model_id', type=str, default=os.getenv('MODEL_ID'),
@@ -119,6 +132,11 @@ def load_model(model_source, model_class=None, loading_params=None):
             }
             loading_params['torch_dtype'] = mapping.get(dtype_str, loading_params['torch_dtype'])
         final_params = {**default_params, **loading_params}
+        if final_params.get('torch_dtype') is torch.bfloat16 and not gpu_supports_bf16():
+            cap = torch.cuda.get_device_capability() if torch.cuda.is_available() else None
+            print(f"⚠️ bfloat16 requested but this GPU (compute capability {cap}) has no native "
+                  f"bfloat16 support. Loading in float16 instead.")
+            final_params['torch_dtype'] = torch.float16
         model = model_class.from_pretrained(model_source, **final_params)
         print(f"✅ Successfully loaded VLM model from: {model_source}")
         return model
