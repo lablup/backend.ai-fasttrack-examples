@@ -1,5 +1,10 @@
-torch>=2.5.0
-transformers>=4.46.0
+# torch: the upper bound keeps pip on a CUDA 12.x build. Newer wheels ship
+# nvidia-*-cu13, which needs an NVIDIA driver >= 580 and silently falls back to
+# CPU on older drivers. For a specific CUDA variant, install torch first, e.g.
+#   pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cu128
+torch>=2.5.0,<2.10.0
+# transformers: AutoModelForVision2Seq and other v4 APIs were removed in v5.
+transformers>=4.46.0,<5
 datasets
 accelerate
 evaluate
